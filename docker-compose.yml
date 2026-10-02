@@ -4,3 +4,17 @@ services:
     ports:
       - "8080:80"
     restart: unless-stopped
+
+  # Sound-Generierung mit ElevenLabs (nur bei Bedarf):
+  #   docker compose run --rm sounds voices
+  #   docker compose run --rm sounds build
+  sounds:
+    profiles: ["tools"]
+    image: node:22-alpine
+    working_dir: /app
+    env_file: .env
+    volumes:
+      - .:/app
+      - /app/node_modules
+    entrypoint: ["sh", "-c", "npm ci --no-audit --no-fund && npx tsx tools/generate-sounds.ts \"$$@\"", "--"]
+    command: ["build"]

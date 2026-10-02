@@ -1,0 +1,31 @@
+{
+  "voiceId": "iP95p4xoKVk53GoZ742B",
+  "modelId": "eleven_multilingual_v2",
+  "takes": 3,
+  "auditionVoiceIds": [
+    "SAz9YHcvj6GT2YYXdXww",
+    "Xb7hH8MSUJpSbSDYk0k2",
+    "onwK4e9ZLuTAKqWW03F9",
+    "iP95p4xoKVk53GoZ742B"
+  ],
+  "auditionText": "Tah kee tah. Tah kah dee mee. Tah dee ghee nah tom.",
+  "syllables": {
+    "ta": { "normal": "Tah.", "accent": "TAH!" },
+    "ka": { "normal": "Kah.", "accent": "KAH!" },
+    "ki": { "normal": "Kee.", "accent": "KEE!" },
+    "di": { "normal": "Dee.", "accent": "DEE!" },
+    "mi": { "normal": "Mee.", "accent": "MEE!" },
+    "gi": { "normal": "Ghee.", "accent": "GHEE!" },
+    "na": { "normal": "Nah.", "accent": "NAH!" },
+    "thom": { "normal": "Tom.", "accent": "TOM!" }
+  },
+  "count": { "eins": "Eins!", "zwei": "Zwei!", "drei": "Drei!", "vier": "Vier!" },
+  "ui": {
+    "correct": { "prompt": "short bright two-note rising marimba chime, clean, dry, no reverb", "seconds": 0.7 },
+    "miss": { "prompt": "single soft low wooden knock, short and muted, dry", "seconds": 0.5 },
+    "lessonComplete": { "prompt": "short cheerful marimba arpeggio flourish ending on a bright chord, dry", "seconds": 1.5 },
+    "streak": { "prompt": "warm short whoosh with a small sparkling shimmer at the end", "seconds": 1.0 }
+  },
+  "levels": { "normalPeakDb": -7, "accentPeakDb": -1, "countPeakDb": -4, "uiPeakDb": -6 },
+  "takeOverrides": {}
+}

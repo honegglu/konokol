@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "sampleRate": 24000,
+  "voiceId": "iP95p4xoKVk53GoZ742B",
+  "modelId": "eleven_multilingual_v2",
+  "generatedAt": "2026-10-02T20:42:12.432Z",
+  "syllables": {
+    "ta": {
+      "normal": {
+        "file": "syl-ta.wav",
+        "refSeconds": 0.0453,
+        "durationSeconds": 0.1753
+      },
+      "accent": {
+        "file": "syl-ta-accent.wav",
+        "refSeconds": 0.0267,
+        "durationSeconds": 0.1567
+      }
+    },
+    "ka": {
+      "normal": {
+        "file": "syl-ka.wav",
+        "refSeconds": 0.064,
+        "durationSeconds": 0.194
+      },
+      "accent": {
+        "file": "syl-ka-accent.wav",
+        "refSeconds": 0.0213,
+        "durationSeconds": 0.1513
+      }
+    },
+    "ki": {
+      "normal": {
+        "file": "syl-ki.wav",
+        "refSeconds": 0.0747,
+        "durationSeconds": 0.2047
+      },
+      "accent": {
+        "file": "syl-ki-accent.wav",
+        "refSeconds": 0.08,
+        "durationSeconds": 0.21
+      }
+    },
+    "di": {
+      "normal": {
+        "file": "syl-di.wav",
+        "refSeconds": 0.032,
+        "durationSeconds": 0.162
+      },
+      "accent": {
+        "file": "syl-di-accent.wav",
+        "refSeconds": 0.024,
+        "durationSeconds": 0.154
+      }
+    },
+    "mi": {
+      "normal": {
+        "file": "syl-mi.wav",
+        "refSeconds": 0.0667,
+        "durationSeconds": 0.1967
+      },
+      "accent": {
+        "file": "syl-mi-accent.wav",
+        "refSeconds": 0.0187,
+        "durationSeconds": 0.1487
+      }
+    },
+    "gi": {
+      "normal": {
+        "file": "syl-gi.wav",
+        "refSeconds": 0.0533,
+        "durationSeconds": 0.1833
+      },
+      "accent": {
+        "file": "syl-gi-accent.wav",
+        "refSeconds": 0.016,
+        "durationSeconds": 0.146
+      }
+    },
+    "na": {
+      "normal": {
+        "file": "syl-na.wav",
+        "refSeconds": 0.0293,
+        "durationSeconds": 0.1593
+      },
+      "accent": {
+        "file": "syl-na-accent.wav",
+        "refSeconds": 0.032,
+        "durationSeconds": 0.162
+      }
+    },
+    "thom": {
+      "normal": {
+        "file": "syl-thom.wav",
+        "refSeconds": 0.0693,
+        "durationSeconds": 0.1993
+      },
+      "accent": {
+        "file": "syl-thom-accent.wav",
+        "refSeconds": 0.0827,
+        "durationSeconds": 0.2127
+      }
+    }
+  },
+  "count": {
+    "eins": {
+      "file": "count-eins.wav",
+      "refSeconds": 0.024,
+      "durationSeconds": 0.154
+    },
+    "zwei": {
+      "file": "count-zwei.wav",
+      "refSeconds": 0.016,
+      "durationSeconds": 0.146
+    },
+    "drei": {
+      "file": "count-drei.wav",
+      "refSeconds": 0.0293,
+      "durationSeconds": 0.1593
+    },
+    "vier": {
+      "file": "count-vier.wav",
+      "refSeconds": 0.0267,
+      "durationSeconds": 0.1567
+    }
+  },
+  "ui": {
+    "correct": {
+      "file": "ui-correct.wav",
+      "refSeconds": 0,
+      "durationSeconds": 0.9
+    },
+    "miss": {
+      "file": "ui-miss.wav",
+      "refSeconds": 0,
+      "durationSeconds": 0.346
+    },
+    "lessonComplete": {
+      "file": "ui-lessonComplete.wav",
+      "refSeconds": 0,
+      "durationSeconds": 1.7
+    },
+    "streak": {
+      "file": "ui-streak.wav",
+      "refSeconds": 0,
+      "durationSeconds": 1.2
+    }
+  }
+}
