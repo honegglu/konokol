@@ -4,7 +4,7 @@ Eine Lern-Webapp im Duolingo-Stil, um **Konnakol** zu lernen, die südindische K
 
 Die App spricht Silben vor (Ta, Ta-ka, Ta-ki-ta, Ta-ka-di-mi, …), hört über das Mikrofon zu und bewertet **pro Silbe**, ob du im Timing bist und ab Unit 4 auch, ob die Akzente sitzen.
 
-> **Status:** Design abgestimmt, Umsetzung startet. Details in der [Design-Spec](docs/superpowers/specs/2026-10-02-konnakol-trainer-design.md).
+> **Status:** Plan 1 (Gerüst und Audio-Kern) umgesetzt, Abnahme der Einsatz-Erkennung läuft. Details in der [Design-Spec](docs/superpowers/specs/2026-10-02-konnakol-trainer-design.md) und in [Plan 1](docs/superpowers/plans/2026-10-02-plan-1-geruest-und-audio-kern.md).
 > "taka" ist ein Arbeitstitel.
 
 ## Was die App können soll (v1)
@@ -26,25 +26,38 @@ Die App spricht Silben vor (Ta, Ta-ka, Ta-ki-ta, Ta-ka-di-mi, …), hört über 
 
 ## Starten
 
-> Die folgenden Befehle funktionieren, sobald Phase 1 der Umsetzung steht.
-
 ```bash
 # App bauen und starten, danach http://localhost:8080 öffnen
 docker compose up --build
 ```
 
+Für die Entwicklung: `npm install`, dann `npm run dev` (http://localhost:5173).
+
 Das Mikrofon funktioniert nur über `localhost` oder HTTPS. Für die lokale Nutzung reicht `localhost`.
+
+### Audio testen
+
+Unter `/debug/audio` gibt es eine Testseite: Kopfhörer-Check, Latenz messen, Patterns mitsprechen und die erkannten Silben live sehen. Mit "Take exportieren" entstehen eine WAV- und eine JSON-Datei. In `tests/fixtures/takes/` abgelegt, prüft `npm test` sie automatisch.
+
+### Tests
+
+```bash
+npm test            # Unit-Tests (Vitest)
+npm run test:e2e    # Browser-Tests (Playwright, einmalig: npx playwright install chromium)
+```
 
 ### Sounds neu generieren (optional)
 
 Die gesprochenen Silben und UI-Sounds werden einmalig mit ElevenLabs erzeugt und liegen fertig im Repo unter `public/sounds/`. Neu generieren musst du sie nur, wenn sich Stimme oder Silben ändern:
 
 ```bash
-cp .env.example .env   # dann ELEVENLABS_API eintragen
-docker compose run --rm sounds
+cp .env.example .env              # dann ELEVENLABS_API eintragen
+docker compose run --rm sounds voices   # Hörproben nach tools/.audition/
+# voiceId in tools/sounds.config.json eintragen
+docker compose run --rm sounds build    # alle Sounds nach public/sounds/
 ```
 
-Der API-Key wird nur von diesem Skript gelesen. Er landet weder im Browser noch im Docker-Image.
+Ohne Docker gehen dieselben Befehle mit `npm run sounds -- voices` bzw. `npm run sounds -- build`. Der API-Key wird nur von diesem Skript gelesen. Er landet weder im Browser noch im Docker-Image.
 
 ## Technik
 

@@ -27,8 +27,12 @@ test('Worklet erkennt Silben zeitgenau, auch nach einer Pause ohne Eingang', asy
     sink.gain.value = 0
     node.connect(sink).connect(ctx.destination)
     const onsets: number[] = []
+    let lastMessageAt = performance.now()
     node.port.onmessage = (e: MessageEvent) => {
-      if (e.data.type === 'onsets') onsets.push(...e.data.onsets.map((o: { time: number }) => o.time))
+      if (e.data.type === 'onsets') {
+        onsets.push(...e.data.onsets.map((o: { time: number }) => o.time))
+        lastMessageAt = performance.now()
+      }
     }
     node.port.postMessage({ type: 'params', params: { minIoiSeconds: 0.075 } })
     const words = ['ta', 'ka', 'di', 'mi']
@@ -47,9 +51,20 @@ test('Worklet erkennt Silben zeitgenau, auch nach einer Pause ohne Eingang', asy
         if (k < 7) src.stop(start + (k + 1) * step - bank.syllable(words[(k + 1) % 4], false).refSeconds)
       }
     }
-    await new Promise((r) => setTimeout(r, 3500))
+    // Auf die Audio-Uhr warten statt auf eine feste Zeit: Beim Kaltstart braucht der Kontext länger.
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    const deadline = performance.now() + 10_000
+    while (ctx.currentTime < targets[targets.length - 1] + 0.5) {
+      if (performance.now() > deadline) throw new Error('Audio-Uhr erreicht das Ende der Wiedergabe nicht (Timeout 10 s)')
+      await sleep(50)
+    }
+    // Flush senden und warten, bis 100 ms lang kein weiterer Einsatz mehr eintrifft.
     node.port.postMessage({ type: 'flush' })
-    await new Promise((r) => setTimeout(r, 150))
+    lastMessageAt = performance.now()
+    while (performance.now() - lastMessageAt < 100) {
+      if (performance.now() > deadline) throw new Error('Worklet liefert nach dem Flush weiter Einsätze (Timeout 10 s)')
+      await sleep(20)
+    }
     await ctx.close()
     const errors = targets.map((t) => Math.min(...onsets.map((o) => Math.abs(o - t))))
     return { count: onsets.length, errors }
