@@ -161,8 +161,8 @@ Raster mit Markierungen (Farbe **und** Symbol: ← zu früh, → zu spät, × ve
 - **ElevenLabs Text-to-Speech** für die 8 Silben (je normal und betont) und die Einzählwörter "Eins, Zwei, Drei, Vier". **ElevenLabs Sound Effects** für UI-Sounds (richtig, verpasst, Lektion geschafft, Streak).
 - **Stimmwahl:** Das Skript erzeugt Hörproben von 3 bis 4 Stimmen (Testphrase "Ta-ki-ta Ta-ka-di-mi"). Luca wählt, die Voice-ID kommt in `tools/sounds.config.json`.
 - Pro Silbe mehrere Takes. Fallback, falls Einzelsilben unnatürlich klingen: Silbe in einer Trägerphrase erzeugen ("ta ta ta") und die mittlere ausschneiden.
-- **Nachbearbeitung in Node** (kein ffmpeg): Stille vorne bis Schwelle −40 dBFS abschneiden, max. 350 ms Länge, 30 ms Fade-out, Pegel angleichen (Peak −1 dBFS, ähnlicher RMS).
-- **Format WAV, 16 Bit, mono.** Kein MP3 (Encoder-Vorlauf von ca. 25 ms würde das Timing verfälschen). Wenn verfügbar, liefert die API direkt PCM; Modell, Ausgabeformat und Endpunkte werden bei der Umsetzung gegen die aktuelle API-Doku geprüft.
+- **Nachbearbeitung in Node** (kein ffmpeg): Stille vorne bis Schwelle −45 dBFS abschneiden (2 ms Vorlauf), Ende bei Einsatzpunkt + 130 ms mit 30 ms Fade-out (kurze, knackige Silben, ohne die Lautstärke-Wellen, die TTS-Stimmen am Silbenende erzeugen), Spitzenpegel angleichen (normal −7 dBFS, betont −1 dBFS).
+- **Format WAV, 16 Bit, mono, 24 kHz.** Die API liefert direkt rohes PCM (`pcm_24000`, in allen Abos verfügbar; 44,1 kHz erst ab Pro). Kein MP3 (Encoder-Vorlauf von ca. 25 ms würde das Timing verfälschen).
 - Ausgabe nach `public/sounds/`, **wird committet** (reproduzierbarer Build, keine API-Kosten pro Build, kein Key im Image).
 - Ergebnis-Manifest `public/sounds/manifest.json` mit Dateiname, Dauer und **P-Center-Offset** pro Silbe (siehe 7.3).
 
@@ -175,18 +175,20 @@ Raster mit Markierungen (Farbe **und** Symbol: ← zu früh, → zu spät, × ve
 
 ### 7.3 P-Center-Korrektur
 
-Gesprochene Silben werden nicht beim ersten Konsonanten-Geräusch "auf dem Schlag" wahrgenommen, sondern etwas später (Übergang zum Vokal). Pro Silbe wird ein Offset gemessen (aus dem Sample) und im Manifest gespeichert:
+Gesprochene Silben werden nicht beim ersten Konsonanten-Geräusch "auf dem Schlag" wahrgenommen, sondern etwas später (Übergang zum Vokal). Ein Prototyp mit echten ElevenLabs-Silben hat gezeigt: Bei flüssigem Sprechen geht der Konsonanten-Knall im Ausklang der vorherigen Silbe unter, der **Anstieg zum Vokal** ist dagegen zuverlässig messbar und liegt nahe am wahrgenommenen Schlag. Deshalb:
 
-- **Wiedergabe:** Sample startet um den Offset früher, damit der wahrgenommene Schlag auf dem Raster liegt.
-- **Erkennung:** erkannter Einsatz + Offset der erwarteten Silbe wird mit der Rasterzeit verglichen.
+- **Ein gemeinsamer Messpunkt:** Die Einsatz-Erkennung (7.4) liefert den Vokalbeginn. Derselbe Detektor bestimmt im Sound-Skript den Einsatzpunkt jedes Samples (`refSeconds` im Manifest).
+- **Wiedergabe:** Sample startet um `refSeconds` früher, damit der Einsatzpunkt auf dem Raster liegt.
+- **Erkennung:** Der erkannte Einsatz minus Kalibrier-Latenz wird direkt mit der Rasterzeit verglichen (Silben-Offset standardmässig 0).
 
-Die Werte werden in Phase 2 mit Lucas Aufnahmen validiert und bei Bedarf feinjustiert.
+In Phase 2 zeigt die Debug-Ansicht den Median-Versatz pro Silbe. Liegt eine Silbe in Lucas Aufnahmen systematisch daneben, kommt dafür ein Silben-Offset dazu.
 
 ### 7.4 Mikrofon und Einsatz-Erkennung
 
 - `getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })`.
-- **AudioWorklet** mit Hop von 128 Samples (ca. 3 ms): Detektionsfunktion = positiver Fluss der hochfrequenz-gewichteten Energie (Konsonanten T, K, D, G). Adaptive Schwelle aus dem Grundpegel (gemessen im Einzähltakt, gleitend nachgeführt). Mindestabstand zwischen Einsätzen = max(40 ms, 0.5 · s), damit lange Vokale ("Thom") nicht doppelt zählen.
-- Pro Einsatz: Zeitpunkt (Frame-genau auf Audio-Uhr umgerechnet) und Spitzenpegel der folgenden 30 ms (für Akzente).
+- **AudioWorklet** mit Hop von 128 Samples (ca. 3 ms bei 48 kHz): Energie nach Hochpass (150 Hz), geglättet über ca. 10 ms. Eine Silbe ist ein Anstieg vom Tal zum Gipfel (mind. 6 dB, mind. 12 dB über dem gleitend nachgeführten Grundpegel, mind. −60 dBFS). Einsatzpunkt = Stelle, an der der Anstieg 6 dB unter dem Gipfel liegt (Vokalbeginn). Folgt innerhalb von 80 ms ein um mind. 6 dB lauterer Gipfel, wird der Einsatz darauf umgehängt (Konsonant vor Vokal). Mindestabstand zwischen Einsätzen = max(40 ms, 0.6 · s), damit lange Vokale ("Thom") nicht doppelt zählen.
+- Quanten ohne aktiven Eingang werden als Stille verarbeitet, damit die Zeitbasis lückenlos bleibt.
+- Pro Einsatz: Zeitpunkt (auf der Audio-Uhr) und Gipfel der geglätteten Energie in dB (für Akzente).
 - Der Erkennungs-Kern ist eine **reine Funktion** (Samples → Einsätze), die im Worklet und offline in Tests läuft.
 - Parallel wird die Aufnahme in einen Puffer geschrieben (nur im Arbeitsspeicher) für "Anhören".
 - Latenzkorrektur: verglichen wird `Einsatz − Kalibrier-Latenz` mit der erwarteten Zeit.
@@ -324,7 +326,8 @@ interface ProgressStore { load(): Promise<SaveState>; save(s: SaveState): Promis
 
 - **Unit-Tests (Vitest):** `expectedEvents` für alle Unterteilungen, Zeitfenster, DP-Zuordnung (Randfälle: zu viele/zu wenige Einsätze, Doppel-Einsätze), Score, Akzente, Tendenz, Fortschrittsregeln (Freischalten, Stufen, XP, Streak über Mitternacht, Tagesziel, Schwachstellen-EMA, Wiedereinreihen), Speicher-Migrationen.
 - **Content-Validierung (Vitest):** jedes Pattern hat 4 Beats pro Takt, `cells.length === div`, Gruppen summieren auf die Zellenzahl, jede Silbe existiert im Sound-Manifest, jede Lektion referenziert existierende Patterns.
-- **Einsatz-Erkennung offline:** synthetische Aufnahmen aus den Samples mit bekannten Zeitpunkten plus Rauschen, sowie echte Takes von Luca aus der Debug-Ansicht. **Ziel: Median-Fehler < 10 ms, ≥ 95 % der Silben erkannt, ≤ 3 % Fehl-Einsätze** bei 16teln bis 120 BPM.
+- **Einsatz-Erkennung offline:** synthetische Silben und Folgen aus den echten Samples mit bekannten Zeitpunkten plus Rauschen. **Ziel: Median-Fehler < 10 ms, ≥ 95 % der Silben erkannt, ≤ 3 % Fehl-Einsätze** bei 16teln bis 120 BPM. Echte Takes von Luca (Debug-Ansicht): ≥ 95 % erkannt, ≤ 3 % Fehl-Einsätze, Live- und Offline-Erkennung stimmen überein (der Median-Fehler enthält hier Lucas eigenes Timing und ist nur ein Plausibilitätswert).
+- **Browser-Integration (Playwright):** echte Samples laufen ohne Mikrofon durch das Worklet, Prüfung der Zeitbasis.
 - **E2E (Playwright, Chromium mit simuliertem Mikrofon aus WAV):** Kalibrierung, eine komplette Lektion bis zum Abschluss, Mikrofon verweigert.
 - **Manuell:** Phase-2-Abnahme durch Luca mit eigener Stimme in der Debug-Ansicht.
 
