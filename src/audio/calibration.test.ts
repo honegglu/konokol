@@ -35,7 +35,7 @@ describe('measureLatency', () => {
   })
 
   it('verwendet jeden Einsatz nur einmal', () => {
-    const result = measureLatency([0, 0.3], [0.05], { minMatched: 1 })
+    const result = measureLatency([0, 0.05], [0.04], { minMatched: 1 })
     expect(result).toMatchObject({ ok: true, matched: 1 })
   })
 })
