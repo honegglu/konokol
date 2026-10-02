@@ -34,3 +34,46 @@ test('Engine lädt die Sounds und spielt Einzählen, Klicks und Silben', async (
   expect(result.end).toBeCloseTo(4)
   expect(result.refTa).toBeGreaterThan(0)
 })
+
+/** Nach `stop()` darf nichts mehr klingen, auch kein Klick, der schon vorausgeplant war. */
+test('stop() verstummt sofort, auch bereits eingeplante Klicks', async ({ page }) => {
+  await page.goto('/')
+  const peak = await page.evaluate(async () => {
+    const load = (path: string) => import(/* @vite-ignore */ path)
+    const { loadSampleBank } = await load('/src/audio/sampleBank.ts')
+    const { AudioEngine } = await load('/src/audio/engine.ts')
+    const { wordBeat } = await load('/src/content/syllables.ts')
+    const ctx = new AudioContext({ latencyHint: 'interactive' })
+    await ctx.resume()
+    const bank = await loadSampleBank(ctx)
+    const analyser = ctx.createAnalyser()
+    analyser.fftSize = 1024
+    analyser.connect(ctx.destination)
+    const engine = new AudioEngine(ctx, bank, analyser)
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+    let lastClick = 0
+    engine.onEvent = (e: { kind: string; time: number }) => {
+      if (e.kind === 'click') lastClick = e.time
+    }
+    const pattern = { id: 'tkdm', title: 'Ta-ka-di-mi', beats: [1, 2, 3, 4].map(() => wordBeat(4, true)) }
+    engine.start({ pattern, bpm: 120, countInBars: 1, loops: null, click: true, voice: false })
+    await wait(1000)
+    // Genau dann stoppen, wenn ein Klick schon eingeplant ist, aber noch nicht erklungen ist.
+    while (lastClick < ctx.currentTime + 0.1) await wait(5)
+    engine.stop()
+    await wait(30)
+
+    const data = new Float32Array(analyser.fftSize)
+    let max = 0
+    const until = performance.now() + 300
+    while (performance.now() < until) {
+      analyser.getFloatTimeDomainData(data)
+      for (const v of data) max = Math.max(max, Math.abs(v))
+      await wait(10)
+    }
+    await ctx.close()
+    return max
+  })
+  expect(peak).toBeLessThan(0.001)
+})
