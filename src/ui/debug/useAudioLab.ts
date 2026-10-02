@@ -55,6 +55,22 @@ const KEEP_FRAMES_SECONDS = 8
 /** Werte, die auf der Testseite verstellt und gespeichert werden. */
 export const TUNABLE_PARAMS = ['riseDb', 'belowPeakDb', 'aboveFloorDb', 'minLevelDb', 'peakDropDb', 'mergeDb'] as const satisfies readonly (keyof DetectorParams)[]
 
+/** Standardwerte nur der verstellbaren Werte. Alles andere (z. B. `minIoiSeconds`) gehört dem jeweiligen Lauf. */
+const TUNABLE_DEFAULTS = Object.fromEntries(TUNABLE_PARAMS.map((k) => [k, DEFAULT_DETECTOR_PARAMS[k]])) as Pick<DetectorParams, (typeof TUNABLE_PARAMS)[number]>
+
+type Run = { pattern: Pattern; bpm: number; playback: Playback }
+
+/**
+ * Abgeschlossener Testlauf, eingefroren beim Stopp. Der Export liest nur das, damit WAV und JSON
+ * zusammenpassen, egal was danach mit Kalibrierung, Reglern oder Einsatz-Liste passiert.
+ */
+type RunSnapshot = Run & { onsets: Onset[]; latencySeconds: number; detectorParams: DetectorParams }
+
+/** Schliesst einen AudioContext, auch wenn er schon (oder gerade) geschlossen wird. */
+function closeContext(ctx: AudioContext | null): void {
+  if (ctx && ctx.state !== 'closed') ctx.close().catch(() => undefined)
+}
+
 export function useAudioLab() {
   const [state, setState] = useState<LabState>(() => ({
     status: 'idle',
@@ -81,10 +97,13 @@ export function useAudioLab() {
   const onsetsRef = useRef<Onset[]>([])
   const marksRef = useRef<MatchedMark[]>([])
   const extrasRef = useRef<OnsetMark[]>([])
-  const runRef = useRef<{ pattern: Pattern; bpm: number; playback: Playback } | null>(null)
-  /** Letzter Lauf, damit nach "Stopp" noch exportiert werden kann. */
-  const lastRunRef = useRef<{ pattern: Pattern; bpm: number; playback: Playback } | null>(null)
+  const runRef = useRef<Run | null>(null)
+  /** Detektor-Werte, die das Mikrofon im laufenden Testlauf gerade hat (inklusive Raster-Mindestabstand). */
+  const runParamsRef = useRef<DetectorParams | null>(null)
+  /** Letzter abgeschlossener Lauf, damit nach "Stopp" noch exportiert werden kann. */
+  const lastRunRef = useRef<RunSnapshot | null>(null)
   const timersRef = useRef<number[]>([])
+  const unmountedRef = useRef(false)
   const stateRef = useRef(state)
   stateRef.current = state
 
@@ -112,13 +131,28 @@ export function useAudioLab() {
 
   const init = useCallback(async () => {
     patch({ status: 'starting', error: null })
+    let ctx: AudioContext | null = null
+    let mic: MicInput | null = null
+    /** Gibt alles frei, was dieser Start angelegt hat (auch bei Abbruch durch Navigation). */
+    const release = () => {
+      mic?.close()
+      closeContext(ctx)
+      if (ctxRef.current === ctx) ctxRef.current = null
+      if (micRef.current === mic) micRef.current = null
+      engineRef.current = null
+      recorderRef.current = null
+    }
     try {
-      const ctx = new AudioContext({ latencyHint: 'interactive' })
-      await ctx.resume()
-      const bank = await loadSampleBank(ctx)
-      const mic = await openMic(ctx, onMicMessage)
-      mic.setParams(stateRef.current.params)
+      ctx = new AudioContext({ latencyHint: 'interactive' })
+      // Sofort merken, damit das Aufräumen beim Verlassen der Seite den Context auch während des Ladens findet.
       ctxRef.current = ctx
+      await ctx.resume()
+      if (unmountedRef.current) return release()
+      const bank = await loadSampleBank(ctx)
+      if (unmountedRef.current) return release()
+      mic = await openMic(ctx, onMicMessage)
+      if (unmountedRef.current) return release()
+      mic.setParams(stateRef.current.params)
       engineRef.current = new AudioEngine(ctx, bank)
       micRef.current = mic
       recorderRef.current = new Recorder(ctx.sampleRate)
@@ -131,6 +165,8 @@ export function useAudioLab() {
         deviceChanged: calibration !== null && calibration.deviceId !== mic.deviceId,
       })
     } catch (error) {
+      release()
+      if (unmountedRef.current) return
       const message = error instanceof MicError || error instanceof Error ? error.message : String(error)
       patch({ status: 'error', error: message })
     }
@@ -148,8 +184,24 @@ export function useAudioLab() {
   const stop = useCallback(() => {
     clearTimers()
     engineRef.current?.stop()
-    micRef.current?.flush()
+    const mic = micRef.current
+    const run = runRef.current
+    const runParams = runParamsRef.current
+    if (modeRef.current === 'run' && run && runParams) {
+      // Lauf einfrieren. Die Aufnahme endet jetzt (der Recorder bekommt nur im Modus 'run' Blöcke).
+      const recorder = recorderRef.current
+      const recordedUntil = (recorder?.startTime ?? 0) + (recorder?.durationSeconds ?? 0)
+      const inRecording = () => onsetsRef.current.filter((o) => o.time <= recordedUntil)
+      const snapshot: RunSnapshot = { ...run, onsets: inRecording(), latencySeconds: latency(), detectorParams: { ...runParams } }
+      lastRunRef.current = snapshot
+      // Der letzte zurückgehaltene Einsatz kommt erst nach dem Flush an: nachtragen, soweit er noch in der Aufnahme liegt.
+      after(0.2, () => {
+        if (lastRunRef.current === snapshot) snapshot.onsets = inRecording()
+      })
+    }
+    mic?.flush()
     runRef.current = null
+    runParamsRef.current = null
     setMode('idle')
   }, [setMode])
 
@@ -162,6 +214,9 @@ export function useAudioLab() {
       if (!engine || !mic || !ctx) return
       clearTimers()
       onsetsRef.current = []
+      // Die Kalibrierung ersetzt die Einsätze, also darf auch kein früherer Lauf mehr exportierbar sein.
+      recorderRef.current?.clear()
+      lastRunRef.current = null
       mic.reset({ ...stateRef.current.params, minIoiSeconds: minIoi })
       setMode(mode)
       const playback = engine.start({ pattern: CALIBRATION_PATTERN, bpm, countInBars, loops: 2, click: true, voice: false })
@@ -257,10 +312,12 @@ export function useAudioLab() {
       marksRef.current = []
       extrasRef.current = []
       recorderRef.current?.clear()
-      mic.reset({ ...stateRef.current.params, minIoiSeconds: minIoiForGrid(gridStep(pattern, bpm)) })
+      lastRunRef.current = null
+      const runParams: DetectorParams = { ...stateRef.current.params, minIoiSeconds: minIoiForGrid(gridStep(pattern, bpm)) }
+      mic.reset(runParams)
       const playback = engine.start({ pattern, bpm, countInBars: 1, loops: null, click, voice })
       runRef.current = { pattern, bpm, playback }
-      lastRunRef.current = runRef.current
+      runParamsRef.current = runParams
       setMode('run')
       patch({ summary: null, message: null })
       const tick = () => {
@@ -278,6 +335,7 @@ export function useAudioLab() {
       const params = { ...stateRef.current.params, [key]: value }
       saveDetectorParams(Object.fromEntries(TUNABLE_PARAMS.map((k) => [k, params[k]])))
       micRef.current?.setParams({ [key]: value })
+      if (runParamsRef.current) runParamsRef.current = { ...runParamsRef.current, [key]: value }
       patch({ params })
     },
     [patch],
@@ -285,8 +343,10 @@ export function useAudioLab() {
 
   const resetParams = useCallback(() => {
     clearDetectorParams()
-    micRef.current?.setParams(DEFAULT_DETECTOR_PARAMS)
-    patch({ params: { ...DEFAULT_DETECTOR_PARAMS } })
+    // Nur die verstellbaren Werte, sonst würde ein laufender Test seinen Raster-Mindestabstand verlieren.
+    micRef.current?.setParams(TUNABLE_DEFAULTS)
+    if (runParamsRef.current) runParamsRef.current = { ...runParamsRef.current, ...TUNABLE_DEFAULTS }
+    patch({ params: { ...stateRef.current.params, ...TUNABLE_DEFAULTS } })
   }, [patch])
 
   const exportTake = useCallback(() => {
@@ -294,11 +354,10 @@ export function useAudioLab() {
     const ctx = ctxRef.current
     const source = lastRunRef.current
     const start = recorder?.startTime
-    if (!recorder || !ctx || start === null || start === undefined || recorder.durationSeconds < 1) {
+    if (modeRef.current !== 'idle' || !source || !recorder || !ctx || start === null || start === undefined || recorder.durationSeconds < 1) {
       patch({ message: 'Noch keine Aufnahme. Starte zuerst einen Testlauf mit Mikrofon.' })
       return
     }
-    if (!source) return
     const { pattern, bpm, playback } = source
     const end = start + recorder.durationSeconds
     const loopDur = patternDuration(pattern, bpm)
@@ -311,10 +370,10 @@ export function useAudioLab() {
       bpm,
       sampleRate: ctx.sampleRate,
       recordingStartTime: start,
-      latencySeconds: latency(),
-      detectorParams: { ...stateRef.current.params, minIoiSeconds: minIoiForGrid(gridStep(pattern, bpm)) },
+      latencySeconds: source.latencySeconds,
+      detectorParams: source.detectorParams,
       expected,
-      onsets: onsetsRef.current,
+      onsets: source.onsets,
     })
     const name = takeBaseName(pattern.id, bpm, new Date())
     download(`${name}.wav`, encodeWav16(recorder.toFloat32(), ctx.sampleRate), 'audio/wav')
@@ -351,15 +410,20 @@ export function useAudioLab() {
     }
   }, [patch, stop])
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Zurücksetzen, weil React im Entwicklungsmodus (StrictMode) Aufräumen und Einrichten einmal vorab durchspielt.
+    unmountedRef.current = false
+    return () => {
+      unmountedRef.current = true
       clearTimers()
       engineRef.current?.stop()
       micRef.current?.close()
-      void ctxRef.current?.close()
-    },
-    [],
-  )
+      closeContext(ctxRef.current)
+      ctxRef.current = null
+      micRef.current = null
+      engineRef.current = null
+    }
+  }, [])
 
   return { state, init, stop, runBleedCheck, runLatency, startRun, setParam, resetParams, exportTake, liveData }
 }

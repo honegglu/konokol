@@ -3,6 +3,8 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 30_000,
+  // Die Tests messen Echtzeit-Audio (Worklet-Zeitgenauigkeit). Parallel laufende Audio-Tests stören sich gegenseitig.
+  workers: 1,
   use: {
     baseURL: 'http://localhost:5180',
     ...devices['Desktop Chrome'],

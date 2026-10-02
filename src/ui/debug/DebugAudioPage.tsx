@@ -141,7 +141,7 @@ export function DebugAudioPage() {
                   Start
                 </Button>
               )}
-              <Button variant="ghost" onClick={lab.exportTake} disabled={state.mode === 'run'} icon={<DownloadSimple size={20} weight="bold" />}>
+              <Button variant="ghost" onClick={lab.exportTake} disabled={busy} icon={<DownloadSimple size={20} weight="bold" />}>
                 Take exportieren
               </Button>
             </div>
