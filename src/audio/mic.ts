@@ -25,6 +25,9 @@ export type MicInput = {
 
 const loadedContexts = new WeakSet<BaseAudioContext>()
 
+const LOAD_ERROR =
+  'Die Mikrofon-Auswertung konnte nicht geladen werden. Bitte die Seite neu laden oder einen aktuellen Chrome, Firefox oder Safari verwenden.'
+
 /**
  * Öffnet das Mikrofon ohne Echo-Unterdrückung, Rauschfilter und Pegelautomatik und hängt
  * den Einsatz-Detektor (AudioWorklet) an.
@@ -32,6 +35,15 @@ const loadedContexts = new WeakSet<BaseAudioContext>()
 export async function openMic(ctx: AudioContext, onMessage: (message: WorkletOutMessage) => void): Promise<MicInput> {
   if (!navigator.mediaDevices?.getUserMedia || !ctx.audioWorklet) {
     throw new MicError('unsupported', 'Dieser Browser unterstützt die Mikrofon-Auswertung nicht. Bitte aktuellen Chrome, Firefox oder Safari verwenden.')
+  }
+  // Das Worklet zuerst laden: Schlägt das fehl, gibt es keine Mikrofon-Abfrage und nichts muss freigegeben werden.
+  if (!loadedContexts.has(ctx)) {
+    try {
+      await ctx.audioWorklet.addModule(workletUrl)
+    } catch {
+      throw new MicError('unsupported', LOAD_ERROR)
+    }
+    loadedContexts.add(ctx)
   }
   let stream: MediaStream
   try {
@@ -47,37 +59,50 @@ export async function openMic(ctx: AudioContext, onMessage: (message: WorkletOut
         : 'Es wurde kein Mikrofon gefunden.',
     )
   }
-  if (!loadedContexts.has(ctx)) {
-    await ctx.audioWorklet.addModule(workletUrl)
-    loadedContexts.add(ctx)
-  }
-  const source = ctx.createMediaStreamSource(stream)
-  const node = new AudioWorkletNode(ctx, WORKLET_NAME, {
-    numberOfInputs: 1,
-    numberOfOutputs: 1,
-    channelCount: 1,
-    channelCountMode: 'explicit',
-  })
-  // Stummer Ausgang, damit der Browser das Worklet sicher verarbeitet.
-  const sink = ctx.createGain()
-  sink.gain.value = 0
-  source.connect(node).connect(sink).connect(ctx.destination)
-  node.port.onmessage = (event: MessageEvent<WorkletOutMessage>) => onMessage(event.data)
-  const send = (message: WorkletInMessage) => node.port.postMessage(message)
+  const created: AudioNode[] = []
+  try {
+    const source = ctx.createMediaStreamSource(stream)
+    created.push(source)
+    const node = new AudioWorkletNode(ctx, WORKLET_NAME, {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      channelCount: 1,
+      channelCountMode: 'explicit',
+    })
+    created.push(node)
+    // Stummer Ausgang, damit der Browser das Worklet sicher verarbeitet.
+    const sink = ctx.createGain()
+    created.push(sink)
+    sink.gain.value = 0
+    source.connect(node).connect(sink).connect(ctx.destination)
+    node.port.onmessage = (event: MessageEvent<WorkletOutMessage>) => onMessage(event.data)
+    const send = (message: WorkletInMessage) => node.port.postMessage(message)
 
-  const track = stream.getAudioTracks()[0]
-  return {
-    deviceId: track.getSettings().deviceId ?? '',
-    label: track.label || 'Mikrofon',
-    setParams: (params) => send({ type: 'params', params }),
-    reset: (params) => send({ type: 'reset', params }),
-    flush: () => send({ type: 'flush' }),
-    close: () => {
-      source.disconnect()
-      node.disconnect()
-      sink.disconnect()
-      node.port.onmessage = null
-      stream.getTracks().forEach((t) => t.stop())
-    },
+    const track = stream.getAudioTracks()[0]
+    return {
+      deviceId: track.getSettings().deviceId ?? '',
+      label: track.label || 'Mikrofon',
+      setParams: (params) => send({ type: 'params', params }),
+      reset: (params) => send({ type: 'reset', params }),
+      flush: () => send({ type: 'flush' }),
+      close: () => {
+        source.disconnect()
+        node.disconnect()
+        sink.disconnect()
+        node.port.onmessage = null
+        stream.getTracks().forEach((t) => t.stop())
+      },
+    }
+  } catch {
+    // Das Mikrofon darf nicht weiterlaufen (Aufnahme-Anzeige des Browsers), wenn der Aufbau scheitert.
+    stream.getTracks().forEach((t) => t.stop())
+    for (const node of created) {
+      try {
+        node.disconnect()
+      } catch {
+        // Aufräumen darf nicht erneut scheitern.
+      }
+    }
+    throw new MicError('unsupported', LOAD_ERROR)
   }
 }
