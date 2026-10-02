@@ -13,6 +13,9 @@ test-results/
 # Brainstorming companion (local mockups)
 .superpowers/
 
+# Hörproben und einzelne Takes des Sound-Skripts
+tools/.audition/
+
 # OS / editor
 .DS_Store
 *.log

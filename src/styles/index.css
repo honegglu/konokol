@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/* Design-Tokens "Tiefes Petrol" (Spec 8.1). light-dark() wählt je nach color-scheme. */
+:root {
+  color-scheme: light dark;
+  --primary: light-dark(#0e6e74, #1fa3a3);
+  --primary-edge: light-dark(#08494d, #127070);
+  --primary-soft: light-dark(#e1f0f0, #172a2e);
+  --on-primary: light-dark(#ffffff, #0f1d20);
+  --bg: light-dark(#eef6f6, #0f1d20);
+  --surface: light-dark(#ffffff, #172a2e);
+  --text: light-dark(#2f3a3c, #e3eeee);
+  --text-muted: light-dark(#5c6b6e, #8fa3a5);
+  --warn: light-dark(#e39a2d, #f0aa45);
+  --warn-soft: light-dark(#fcebcb, #3a3020);
+  --error: light-dark(#e2604a, #e8705e);
+  --error-soft: light-dark(#fbe1dc, #3d2422);
+  --line: light-dark(#dce6e6, #22363a);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-primary: var(--primary);
+  --color-primary-edge: var(--primary-edge);
+  --color-primary-soft: var(--primary-soft);
+  --color-on-primary: var(--on-primary);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-error: var(--error);
+  --color-error-soft: var(--error-soft);
+  --color-line: var(--line);
+  --font-sans: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  --radius-card: 14px;
+  --radius-cell: 9px;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-weight: 700;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
+}
