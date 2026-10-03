@@ -95,6 +95,18 @@ export function placeSyllables(
   return out
 }
 
+/**
+ * Nur Einsätze, die zum bewerteten Bereich gehören: von einem halben Schritt vor dem ersten bis einen
+ * halben Schritt nach dem letzten Ziel. Alles davor und danach (Einzählen, angefangener Durchgang,
+ * Stopp-Klick) ist nicht erwartet und darf nicht als Fehl-Einsatz zählen.
+ */
+export function onsetsInTargetRange(onsetTimes: number[], targets: number[], step: number): number[] {
+  if (targets.length === 0) return []
+  const from = targets[0] - step / 2
+  const to = targets[targets.length - 1] + step / 2
+  return onsetTimes.filter((t) => t >= from && t <= to)
+}
+
 export type MatchStats = { matched: number; extras: number; errors: number[] }
 
 /** Ordnet jedem Ziel den nächsten Einsatz innerhalb ±halber Rasterschritt zu. */

@@ -69,4 +69,31 @@ describe('onset-worklet', () => {
     expect(blocks).toHaveLength(2)
     expect(blocks.map((b) => b.type === 'block' && b.startFrame)).toEqual([0, 2048])
   })
+
+  it('beschriftet alle Nachrichten nach einem Reset mit der neuen Epoche', () => {
+    const processor = new ProcessorCtor()
+    const messages: WorkletOutMessage[] = []
+    processor.port.postMessage = (m) => messages.push(m)
+
+    // Vor dem Reset: Epoche 0 (Ausgangswert), mit einem Block.
+    run(processor, Array.from({ length: 16 }, () => new Float32Array(128).fill(0.01)))
+    expect(messages.map((m) => m.type)).toEqual(['block'])
+    expect(messages.every((m) => m.epoch === 0)).toBe(true)
+
+    processor.port.onmessage?.({ data: { type: 'reset', epoch: 7 } })
+    const before = messages.length
+
+    const syllable = synthSyllable(SR)
+    const ref = referencePoint(syllable, SR)
+    const signal = placeSyllables(SR, [0.3, 0.55], [syllable], [ref], 1.024) // 384 Quanten
+    const quanta: Float32Array[] = []
+    for (let i = 0; i < signal.length; i += 128) quanta.push(signal.subarray(i, i + 128))
+    run(processor, quanta)
+    processor.port.onmessage?.({ data: { type: 'flush' } })
+
+    const after = messages.slice(before)
+    expect(after.some((m) => m.type === 'block')).toBe(true)
+    expect(after.some((m) => m.type === 'onsets')).toBe(true)
+    expect(after.every((m) => m.epoch === 7)).toBe(true)
+  })
 })

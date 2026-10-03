@@ -19,7 +19,12 @@ test('Engine lädt die Sounds und spielt Einzählen, Klicks und Silben', async (
     }
     const pattern = { id: 'tkdm', title: 'Ta-ka-di-mi', beats: [1, 2, 3, 4].map(() => wordBeat(4, true)) }
     const playback = engine.start({ pattern, bpm: 120, countInBars: 1, loops: 1, click: true, voice: true })
-    await new Promise((r) => setTimeout(r, 4600))
+    // Auf die Audio-Uhr warten statt auf eine feste Zeit: Beim Kaltstart braucht der Kontext länger.
+    const deadline = performance.now() + 10_000
+    while (ctx.currentTime < (playback.endTime ?? 0) + 0.3) {
+      if (performance.now() > deadline) throw new Error('Audio-Uhr erreicht das Ende der Wiedergabe nicht (Timeout 10 s)')
+      await new Promise((r) => setTimeout(r, 50))
+    }
     engine.stop()
     await ctx.close()
     return {

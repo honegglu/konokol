@@ -2,6 +2,7 @@ import { ArrowLeft, DownloadSimple, Headphones, Microphone, Play, Stop, Timer } 
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import type { DetectorParams } from '../../audio/onset/detector'
+import { syllableLabel } from '../../content/syllables'
 import { Button } from '../components/Button'
 import { DEBUG_PATTERNS } from './debugPatterns'
 import { LiveView } from './LiveView'
@@ -14,6 +15,12 @@ const PARAM_LABELS: Record<(typeof TUNABLE_PARAMS)[number], { label: string; min
   minLevelDb: { label: 'Mindestpegel (dBFS)', min: -80, max: -30, step: 1 },
   peakDropDb: { label: 'Gipfel-Abfall (dB)', min: 1, max: 8, step: 0.5 },
   mergeDb: { label: 'Knall auf Vokal umhängen ab (dB)', min: 2, max: 15, step: 0.5 },
+}
+
+/** Millisekunden mit einer Nachkommastelle, `null` heisst: nichts zu messen. */
+function formatMs(ms: number | null, signed = false): string {
+  if (ms === null) return 'keine Daten'
+  return `${signed && ms > 0 ? '+' : ''}${ms.toFixed(1)} ms`
 }
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
@@ -159,14 +166,14 @@ export function DebugAudioPage() {
                   <Fact label="Erwartet" value={state.summary.expected} />
                   <Fact label="Erkannt" value={`${state.summary.matched} (${Math.round((state.summary.matched / state.summary.expected) * 100)} %)`} />
                   <Fact label="Zu viel" value={state.summary.extras} />
-                  <Fact label="Median Abstand" value={`${state.summary.medianAbsMs.toFixed(1)} ms`} />
-                  <Fact label="Median Richtung" value={`${state.summary.medianSignedMs > 0 ? '+' : ''}${state.summary.medianSignedMs.toFixed(1)} ms`} />
+                  <Fact label="Median Abstand" value={formatMs(state.summary.medianAbsMs)} />
+                  <Fact label="Median Richtung" value={formatMs(state.summary.medianSignedMs, true)} />
                 </div>
                 <div className="flex flex-wrap gap-3">
                   {state.summary.perSyllable.map((s) => (
-                    <span key={s.syl} className="rounded-cell bg-primary-soft px-3 py-2 text-sm">
-                      {s.syl}: {s.medianSignedMs > 0 ? '+' : ''}
-                      {s.medianSignedMs.toFixed(1)} ms ({s.n})
+                    <span key={`${s.syl}-${s.accent}`} className="rounded-cell bg-primary-soft px-3 py-2 text-sm">
+                      {syllableLabel(s.syl, s.accent)}
+                      {s.accent ? ' (betont)' : ''}: {formatMs(s.medianSignedMs, true)} ({s.n})
                     </span>
                   ))}
                 </div>

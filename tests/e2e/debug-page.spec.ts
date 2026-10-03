@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
+import { decodeWav } from '../../src/audio/dsp/wav'
+import { detectOnsets } from '../../src/audio/onset/detector'
 
 /**
  * Die Audio-Testseite im echten Browser. Es geht um Aufräumen und Export-Konsistenz, nicht um die
@@ -166,10 +168,41 @@ test('Export eines Laufs schreibt WAV und JSON mit den Werten des Laufs', async 
   await expect.poll(() => downloads.length).toBe(2)
   const wav = downloads.find((d) => d.name.endsWith('.wav'))
   const json = downloads.find((d) => d.name.endsWith('.json'))
-  expect(wav?.body.subarray(0, 4).toString('ascii')).toBe('RIFF')
-  const take = JSON.parse(json?.body.toString('utf8') ?? 'null')
+  if (!wav || !json) throw new Error('WAV oder JSON wurde nicht heruntergeladen')
+  expect(wav.body.subarray(0, 4).toString('ascii')).toBe('RIFF')
+  const take = JSON.parse(json.body.toString('utf8'))
   expect(take).toMatchObject({ version: 1, patternId: 'takadimi', bpm: 120, latencySeconds: 0 })
   // Ta-ka-di-mi bei 120 BPM: Schritt 0,125 s, Mindestabstand 0,6 mal Schritt.
   expect(take.detectorParams.minIoiSeconds).toBeCloseTo(0.075)
   expect(take.expected.length).toBeGreaterThanOrEqual(16)
+
+  // Positivkontrolle der Zeitbasis: Dieselben Einsätze, offline aus der WAV-Datei berechnet, müssen an den live
+  // erkannten Stellen liegen. Das stimmt nur, wenn `recordingStartTime` (Beginn der Aufnahme) wirklich passt.
+  const { samples, sampleRate } = decodeWav(new Uint8Array(wav.body))
+  expect(sampleRate).toBe(take.sampleRate)
+  const offline = detectOnsets(samples, sampleRate, take.detectorParams).map((o) => o.time)
+  const live: number[] = take.onsets.map((o: { t: number }) => o.t)
+  // Der Piepton kommt alle 0,5 s, in 5,5 s Aufnahme also gut ein Dutzend Mal.
+  expect(live.length).toBeGreaterThanOrEqual(8)
+  const found = live.filter((t) => offline.some((o) => Math.abs(o - t) <= 0.02)).length
+  expect(found / live.length).toBeGreaterThanOrEqual(0.9)
+})
+
+test('Export wird verweigert, wenn während des Laufs ein Regler verstellt wurde', async ({ page }) => {
+  await instrument(page, 'tone')
+  const downloads: string[] = []
+  page.on('download', (d) => downloads.push(d.suggestedFilename()))
+  await startAudio(page)
+  await setBpm(page, 120)
+
+  await startButton(page).click()
+  await page.waitForTimeout(3000)
+  // Live verstellen bleibt erlaubt, aber der Take würde dann falsche Detektor-Werte angeben.
+  await page.getByRole('slider', { name: /Anstieg/ }).fill('9')
+  await expect(page.getByText('Anstieg (dB): 9')).toBeVisible()
+  await page.getByRole('button', { name: 'Stopp' }).click()
+  await exportButton(page).click()
+
+  await expect(page.getByText('Regler wurden während des Laufs verstellt. Bitte einen neuen Lauf aufnehmen.')).toBeVisible()
+  expect(downloads).toEqual([])
 })

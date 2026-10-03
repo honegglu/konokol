@@ -48,6 +48,7 @@ export type LiveData = {
   marks: MatchedMark[]
   extras: OnsetMark[]
   aboveFloorDb: number
+  minLevelDb: number
 }
 
 const KEEP_FRAMES_SECONDS = 8
@@ -63,8 +64,9 @@ type Run = { pattern: Pattern; bpm: number; playback: Playback }
 /**
  * Abgeschlossener Testlauf, eingefroren beim Stopp. Der Export liest nur das, damit WAV und JSON
  * zusammenpassen, egal was danach mit Kalibrierung, Reglern oder Einsatz-Liste passiert.
+ * `paramsChanged`: Ein Detektor-Wert wurde während des Laufs verstellt, `detectorParams` beschreibt also nur das Ende des Laufs.
  */
-type RunSnapshot = Run & { onsets: Onset[]; latencySeconds: number; detectorParams: DetectorParams }
+type RunSnapshot = Run & { onsets: Onset[]; latencySeconds: number; detectorParams: DetectorParams; paramsChanged: boolean }
 
 /** Schliesst einen AudioContext, auch wenn er schon (oder gerade) geschlossen wird. */
 function closeContext(ctx: AudioContext | null): void {
@@ -100,6 +102,10 @@ export function useAudioLab() {
   const runRef = useRef<Run | null>(null)
   /** Detektor-Werte, die das Mikrofon im laufenden Testlauf gerade hat (inklusive Raster-Mindestabstand). */
   const runParamsRef = useRef<DetectorParams | null>(null)
+  /** Hat sich im laufenden Testlauf ein Detektor-Wert tatsächlich geändert? Dann ist der Take nicht exportierbar. */
+  const runParamsChangedRef = useRef(false)
+  /** Epoche des letzten Resets. Nachrichten des Worklets mit anderer Epoche sind Nachzügler und werden ignoriert. */
+  const epochRef = useRef(0)
   /** Letzter abgeschlossener Lauf, damit nach "Stopp" noch exportiert werden kann. */
   const lastRunRef = useRef<RunSnapshot | null>(null)
   const timersRef = useRef<number[]>([])
@@ -118,6 +124,7 @@ export function useAudioLab() {
   const latency = () => stateRef.current.calibration?.latencySeconds ?? 0
 
   const onMicMessage = useCallback((message: WorkletOutMessage) => {
+    if (message.epoch !== epochRef.current) return
     if (message.type === 'onsets') {
       onsetsRef.current.push(...message.onsets)
       return
@@ -131,6 +138,7 @@ export function useAudioLab() {
 
   const init = useCallback(async () => {
     patch({ status: 'starting', error: null })
+    epochRef.current = 0 // Ein neues Mikrofon-Worklet beginnt wieder bei Epoche 0.
     let ctx: AudioContext | null = null
     let mic: MicInput | null = null
     /** Gibt alles frei, was dieser Start angelegt hat (auch bei Abbruch durch Navigation). */
@@ -192,7 +200,13 @@ export function useAudioLab() {
       const recorder = recorderRef.current
       const recordedUntil = (recorder?.startTime ?? 0) + (recorder?.durationSeconds ?? 0)
       const inRecording = () => onsetsRef.current.filter((o) => o.time <= recordedUntil)
-      const snapshot: RunSnapshot = { ...run, onsets: inRecording(), latencySeconds: latency(), detectorParams: { ...runParams } }
+      const snapshot: RunSnapshot = {
+        ...run,
+        onsets: inRecording(),
+        latencySeconds: latency(),
+        detectorParams: { ...runParams },
+        paramsChanged: runParamsChangedRef.current,
+      }
       lastRunRef.current = snapshot
       // Der letzte zurückgehaltene Einsatz kommt erst nach dem Flush an: nachtragen, soweit er noch in der Aufnahme liegt.
       after(0.2, () => {
@@ -214,10 +228,13 @@ export function useAudioLab() {
       if (!engine || !mic || !ctx) return
       clearTimers()
       onsetsRef.current = []
+      marksRef.current = []
+      extrasRef.current = []
       // Die Kalibrierung ersetzt die Einsätze, also darf auch kein früherer Lauf mehr exportierbar sein.
       recorderRef.current?.clear()
       lastRunRef.current = null
-      mic.reset({ ...stateRef.current.params, minIoiSeconds: minIoi })
+      epochRef.current = mic.reset({ ...stateRef.current.params, minIoiSeconds: minIoi })
+      patch({ summary: null })
       setMode(mode)
       const playback = engine.start({ pattern: CALIBRATION_PATTERN, bpm, countInBars, loops: 2, click: true, voice: false })
       const beat = 60 / bpm
@@ -230,7 +247,7 @@ export function useAudioLab() {
         })
       })
     },
-    [setMode],
+    [patch, setMode],
   )
 
   const runBleedCheck = useCallback(() => {
@@ -314,10 +331,11 @@ export function useAudioLab() {
       recorderRef.current?.clear()
       lastRunRef.current = null
       const runParams: DetectorParams = { ...stateRef.current.params, minIoiSeconds: minIoiForGrid(gridStep(pattern, bpm)) }
-      mic.reset(runParams)
+      epochRef.current = mic.reset(runParams)
       const playback = engine.start({ pattern, bpm, countInBars: 1, loops: null, click, voice })
       runRef.current = { pattern, bpm, playback }
       runParamsRef.current = runParams
+      runParamsChangedRef.current = false
       setMode('run')
       patch({ summary: null, message: null })
       const tick = () => {
@@ -335,7 +353,11 @@ export function useAudioLab() {
       const params = { ...stateRef.current.params, [key]: value }
       saveDetectorParams(Object.fromEntries(TUNABLE_PARAMS.map((k) => [k, params[k]])))
       micRef.current?.setParams({ [key]: value })
-      if (runParamsRef.current) runParamsRef.current = { ...runParamsRef.current, [key]: value }
+      const run = runParamsRef.current
+      if (run) {
+        if (run[key] !== value) runParamsChangedRef.current = true
+        runParamsRef.current = { ...run, [key]: value }
+      }
       patch({ params })
     },
     [patch],
@@ -345,7 +367,12 @@ export function useAudioLab() {
     clearDetectorParams()
     // Nur die verstellbaren Werte, sonst würde ein laufender Test seinen Raster-Mindestabstand verlieren.
     micRef.current?.setParams(TUNABLE_DEFAULTS)
-    if (runParamsRef.current) runParamsRef.current = { ...runParamsRef.current, ...TUNABLE_DEFAULTS }
+    const run = runParamsRef.current
+    if (run) {
+      // Nur eine echte Änderung zählt: Die Standardwerte zu drücken, wenn sie schon gelten, verändert den Lauf nicht.
+      if (TUNABLE_PARAMS.some((k) => run[k] !== TUNABLE_DEFAULTS[k])) runParamsChangedRef.current = true
+      runParamsRef.current = { ...run, ...TUNABLE_DEFAULTS }
+    }
     patch({ params: { ...stateRef.current.params, ...TUNABLE_DEFAULTS } })
   }, [patch])
 
@@ -356,6 +383,10 @@ export function useAudioLab() {
     const start = recorder?.startTime
     if (modeRef.current !== 'idle' || !source || !recorder || !ctx || start === null || start === undefined || recorder.durationSeconds < 1) {
       patch({ message: 'Noch keine Aufnahme. Starte zuerst einen Testlauf mit Mikrofon.' })
+      return
+    }
+    if (source.paramsChanged) {
+      patch({ message: 'Regler wurden während des Laufs verstellt. Bitte einen neuen Lauf aufnehmen.' })
       return
     }
     const { pattern, bpm, playback } = source
@@ -390,6 +421,7 @@ export function useAudioLab() {
       marks: marksRef.current,
       extras: extrasRef.current,
       aboveFloorDb: stateRef.current.params.aboveFloorDb,
+      minLevelDb: stateRef.current.params.minLevelDb,
     }),
     [],
   )

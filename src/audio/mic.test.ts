@@ -77,4 +77,23 @@ describe('openMic', () => {
     expect(error).toBeInstanceOf(MicError)
     expect((error as MicError).kind).toBe('denied')
   })
+
+  it('nummeriert Resets fortlaufend, gibt die Epoche zurück und schickt sie an das Worklet', async () => {
+    getUserMedia.mockResolvedValue(fakeStream().stream)
+    const posted: unknown[] = []
+    vi.stubGlobal(
+      'AudioWorkletNode',
+      class {
+        port = { postMessage: (message: unknown) => posted.push(message), onmessage: null }
+        disconnect() {}
+      },
+    )
+    const mic = await openMic(asContext(fakeContext(() => Promise.resolve())), () => {})
+    expect(mic.reset({ riseDb: 5 })).toBe(1)
+    expect(mic.reset()).toBe(2)
+    expect(posted).toEqual([
+      { type: 'reset', epoch: 1, params: { riseDb: 5 } },
+      { type: 'reset', epoch: 2, params: undefined },
+    ])
+  })
 })

@@ -16,8 +16,12 @@ export type MicInput = {
   deviceId: string
   label: string
   setParams(params: Partial<DetectorParams>): void
-  /** Neuer Detektor (z. B. vor einer Übung). Die Zeitbasis bleibt die Audio-Uhr. */
-  reset(params?: Partial<DetectorParams>): void
+  /**
+   * Neuer Detektor (z. B. vor einer Übung). Die Zeitbasis bleibt die Audio-Uhr.
+   * Gibt die neue Epoche zurück: Das Worklet beschriftet alle folgenden Nachrichten damit. Nachrichten mit
+   * einer anderen Epoche sind Nachzügler aus der Zeit vor dem Reset und gehören nicht zum neuen Lauf.
+   */
+  reset(params?: Partial<DetectorParams>): number
   /** Gibt einen zurückgehaltenen letzten Einsatz frei. */
   flush(): void
   close(): void
@@ -77,13 +81,18 @@ export async function openMic(ctx: AudioContext, onMessage: (message: WorkletOut
     source.connect(node).connect(sink).connect(ctx.destination)
     node.port.onmessage = (event: MessageEvent<WorkletOutMessage>) => onMessage(event.data)
     const send = (message: WorkletInMessage) => node.port.postMessage(message)
+    let epoch = 0
 
     const track = stream.getAudioTracks()[0]
     return {
       deviceId: track.getSettings().deviceId ?? '',
       label: track.label || 'Mikrofon',
       setParams: (params) => send({ type: 'params', params }),
-      reset: (params) => send({ type: 'reset', params }),
+      reset: (params) => {
+        epoch += 1
+        send({ type: 'reset', epoch, params })
+        return epoch
+      },
       flush: () => send({ type: 'flush' }),
       close: () => {
         source.disconnect()

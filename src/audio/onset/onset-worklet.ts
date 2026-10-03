@@ -15,6 +15,8 @@ class OnsetProcessor extends AudioWorkletProcessor {
   private fill = 0
   private bufferStart = 0
   private frames: FrameStat[] = []
+  /** Epoche des letzten Resets, steht in jeder Nachricht an die Seite. */
+  private epoch = 0
 
   constructor() {
     super()
@@ -31,12 +33,13 @@ class OnsetProcessor extends AudioWorkletProcessor {
       this.detector.setParams(message.params)
     } else if (message.type === 'reset') {
       this.params = { ...this.params, ...message.params }
+      this.epoch = message.epoch
       this.detector = new OnsetDetector(sampleRate, this.params)
       this.fill = 0
       this.frames = []
     } else {
       const onsets = this.detector.flush()
-      if (onsets.length > 0) this.send({ type: 'onsets', onsets })
+      if (onsets.length > 0) this.send({ type: 'onsets', epoch: this.epoch, onsets })
     }
   }
 
@@ -45,14 +48,14 @@ class OnsetProcessor extends AudioWorkletProcessor {
     // verarbeiten, sonst verrutschen alle späteren Zeiten.
     const channel = inputs[0]?.[0] ?? SILENCE
     const { onsets, frames } = this.detector.process(channel, currentFrame)
-    if (onsets.length > 0) this.send({ type: 'onsets', onsets })
+    if (onsets.length > 0) this.send({ type: 'onsets', epoch: this.epoch, onsets })
     this.frames.push(...frames)
     if (this.fill === 0) this.bufferStart = currentFrame
     this.buffer.set(channel, this.fill)
     this.fill += channel.length
     if (this.fill >= WORKLET_BLOCK) {
       const samples = this.buffer
-      this.send({ type: 'block', startFrame: this.bufferStart, samples, frames: this.frames }, [samples.buffer])
+      this.send({ type: 'block', epoch: this.epoch, startFrame: this.bufferStart, samples, frames: this.frames }, [samples.buffer])
       this.buffer = new Float32Array(WORKLET_BLOCK)
       this.fill = 0
       this.frames = []

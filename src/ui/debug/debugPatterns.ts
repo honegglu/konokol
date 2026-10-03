@@ -14,5 +14,5 @@ export const DEBUG_PATTERNS: Pattern[] = [
   { id: '332', title: '3+3+2 zweimal (16tel)', beats: groupedBeats([3, 3, 2, 3, 3, 2], 4), groups: [3, 3, 2, 3, 3, 2] },
 ]
 
-/** Viertel ohne Akzent, für Kopfhörer-Check und Latenz-Messung. */
+/** Vier Viertel, jedes betont (wie `bar(1)`), für Kopfhörer-Check und Latenz-Messung. */
 export const CALIBRATION_PATTERN: Pattern = { id: 'calibration', title: 'Kalibrierung', beats: bar(1) }

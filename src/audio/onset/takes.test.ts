@@ -5,7 +5,7 @@ import { median } from '../../domain/stats'
 import type { TakeFile } from '../../ui/debug/takeFile'
 import { decodeWav } from '../dsp/wav'
 import { detectOnsets } from './detector'
-import { matchStats } from './testSignals'
+import { matchStats, onsetsInTargetRange } from './testSignals'
 
 /**
  * Prüft echte Aufnahmen aus der Debug-Ansicht (tests/fixtures/takes/*.json + .wav).
@@ -25,7 +25,8 @@ describe.skipIf(takes.length === 0)('Echte Takes', () => {
       const targets = take.expected.map((e) => e.t + take.latencySeconds)
       const steps = take.expected.slice(1).map((e, i) => e.t - take.expected[i].t)
       const step = Math.min(...steps.filter((s) => s > 0.001))
-      const stats = matchStats(targets, offline, step)
+      // Bewertet werden nur die vollständigen Durchgänge: Einzählen, angefangener Durchgang und Stopp-Klick zählen nicht als Fehl-Einsätze.
+      const stats = matchStats(targets, onsetsInTargetRange(offline, targets, step), step)
 
       // Erkennung: fast alle Silben gefunden, kaum Fehl-Einsätze.
       expect(stats.matched / targets.length).toBeGreaterThanOrEqual(0.95)

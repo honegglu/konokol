@@ -88,7 +88,8 @@ export function LiveView({ getData }: { getData: () => LiveData }) {
         ctx2d.stroke()
       }
       line((f) => f.floorDb, palette.line, 1.5)
-      line((f) => f.floorDb + data.aboveFloorDb, palette.muted, 1)
+      // Der Detektor verlangt Grundpegel plus Abstand und zusätzlich den Mindestpegel.
+      line((f) => Math.max(f.floorDb + data.aboveFloorDb, data.minLevelDb), palette.muted, 1)
       line((f) => f.energyDb, palette.primary, 2)
 
       ctx2d.strokeStyle = palette.text

@@ -16,9 +16,11 @@ export type DebugSummary = {
   expected: number
   matched: number
   extras: number
-  medianAbsMs: number
-  medianSignedMs: number
-  perSyllable: { syl: SyllableId; n: number; medianSignedMs: number }[]
+  /** `null`, wenn keine Silbe erkannt wurde. */
+  medianAbsMs: number | null
+  medianSignedMs: number | null
+  /** Betonte und normale Silben getrennt, weil ihre Bezugspunkte verschieden sind. */
+  perSyllable: { syl: SyllableId; accent: boolean; n: number; medianSignedMs: number }[]
 }
 
 export function matchNearest(expected: ExpectedMark[], onsets: OnsetMark[], step: number): { marks: MatchedMark[]; extras: OnsetMark[] } {
@@ -40,17 +42,20 @@ export function matchNearest(expected: ExpectedMark[], onsets: OnsetMark[], step
 
 export function summarize(marks: MatchedMark[], extras: number): DebugSummary {
   const offsets = marks.flatMap((m) => (m.offset === null ? [] : [m.offset]))
-  const bySyl = new Map<SyllableId, number[]>()
+  const bySyl = new Map<string, { syl: SyllableId; accent: boolean; values: number[] }>()
   for (const m of marks) {
     if (m.offset === null) continue
-    bySyl.set(m.syl, [...(bySyl.get(m.syl) ?? []), m.offset])
+    const key = `${m.syl}|${m.accent}`
+    const entry = bySyl.get(key) ?? { syl: m.syl, accent: m.accent, values: [] }
+    entry.values.push(m.offset)
+    bySyl.set(key, entry)
   }
   return {
     expected: marks.length,
     matched: offsets.length,
     extras,
-    medianAbsMs: median(offsets.map(Math.abs)) * 1000,
-    medianSignedMs: median(offsets) * 1000,
-    perSyllable: [...bySyl.entries()].map(([syl, values]) => ({ syl, n: values.length, medianSignedMs: median(values) * 1000 })),
+    medianAbsMs: offsets.length > 0 ? median(offsets.map(Math.abs)) * 1000 : null,
+    medianSignedMs: offsets.length > 0 ? median(offsets) * 1000 : null,
+    perSyllable: [...bySyl.values()].map(({ syl, accent, values }) => ({ syl, accent, n: values.length, medianSignedMs: median(values) * 1000 })),
   }
 }

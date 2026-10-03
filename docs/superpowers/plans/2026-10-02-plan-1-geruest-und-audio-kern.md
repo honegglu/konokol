@@ -4935,7 +4935,7 @@ git push
 Luca arbeitet in der laufenden App (`docker compose up --build`, `http://localhost:8080/debug/audio`) mit Kopfhörern:
 
 1. Kopfhörer-Check und Latenz messen.
-2. Pro Pattern ein Lauf von mindestens 4 Durchgängen, mitsprechen, dann "Take exportieren":
+2. Pro Pattern ein Lauf von mindestens 8 Durchgängen, mitsprechen, dann "Take exportieren":
    - Ta-ka (Achtel) bei 100 BPM
    - Ta-ki-ta (Triolen) bei 80 BPM
    - Ta-ka-di-mi (16tel) bei 80 und 120 BPM
