@@ -37,7 +37,7 @@ Das Mikrofon funktioniert nur über `localhost` oder HTTPS. Für die lokale Nutz
 
 ### Audio testen
 
-Unter `/debug/audio` gibt es eine Testseite: Kopfhörer-Check, Latenz messen, Patterns mitsprechen und die erkannten Silben live sehen. Mit "Take exportieren" entstehen eine WAV- und eine JSON-Datei. In `tests/fixtures/takes/` abgelegt, prüft `npm test` sie automatisch.
+Unter `/debug/audio` gibt es eine Testseite: Kopfhörer-Check, Latenz messen, Patterns mitsprechen und die erkannten Silben live sehen. Mit "Take exportieren" entstehen eine WAV- und eine JSON-Datei. In `tests/fixtures/takes/` abgelegt, prüft `npm test` sie automatisch. Die Takes bleiben lokal (der Ordner ist in `.gitignore`), weil sie echte Stimmaufnahmen sind.
 
 ### Tests
 

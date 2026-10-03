@@ -4950,6 +4950,6 @@ Abnahmekriterien:
 
 Wenn Detektor-Werte per Schieberegler angepasst werden mussten: die gefundenen Werte in `DEFAULT_DETECTOR_PARAMS` (`src/audio/onset/detector.ts`) übernehmen, `npm test` laufen lassen, committen.
 
-Die Takes werden committet (sie sind Lucas Stimme; vorher fragen, ob sie ins öffentliche Repo dürfen, sonst `tests/fixtures/takes/*.wav` in `.gitignore` aufnehmen und nur lokal prüfen).
+Die Takes bleiben lokal (Entscheid Luca, 2026-10-03): `tests/fixtures/takes/*` steht in `.gitignore`, nur `.gitkeep` ist im Repo.
 
 Danach: Plan 2 schreiben (Bewertung und Übungstypen).

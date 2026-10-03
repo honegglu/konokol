@@ -21,3 +21,7 @@ tools/.audition/
 *.log
 .vscode/
 .idea/
+
+# Echte Aufnahmen (Abnahme-Takes) bleiben lokal, nur der Ordner ist im Repo
+tests/fixtures/takes/*
+!tests/fixtures/takes/.gitkeep
