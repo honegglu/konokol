@@ -4,13 +4,15 @@ import { MicError, openMic } from './mic'
 // Die Worklet-URL kommt in der App von Vite (`?worker&url`); im Test reicht ein fester Wert.
 vi.mock('./onset/onset-worklet.ts?worker&url', () => ({ default: '/worklet.js' }))
 
-type FakeTrack = { stop: ReturnType<typeof vi.fn>; label: string; getSettings: () => { deviceId: string } }
+type FakeSettings = { deviceId: string; echoCancellation?: boolean | string }
+type FakeTrack = { stop: ReturnType<typeof vi.fn>; label: string; getSettings: () => FakeSettings }
 
-function fakeStream(trackCount = 1) {
+/** `settings`: Was der Browser über die Spur meldet (z. B. `echoCancellation`). Ohne Angabe fehlt der Eintrag. */
+function fakeStream(trackCount = 1, settings: Partial<FakeSettings> = {}) {
   const tracks: FakeTrack[] = Array.from({ length: trackCount }, () => ({
     stop: vi.fn(),
     label: 'Test-Mikrofon',
-    getSettings: () => ({ deviceId: 'dev-1' }),
+    getSettings: () => ({ deviceId: 'dev-1', ...settings }),
   }))
   return { tracks, stream: { getTracks: () => tracks, getAudioTracks: () => tracks } }
 }
@@ -95,5 +97,60 @@ describe('openMic', () => {
       { type: 'reset', epoch: 1, params: { riseDb: 5 } },
       { type: 'reset', epoch: 2, params: undefined },
     ])
+  })
+
+  describe('Echo-Unterdrückung', () => {
+    // Der Worklet-Knoten wird nur gebraucht, damit `openMic` bis zum Ende durchläuft.
+    function stubWorkletNode() {
+      vi.stubGlobal(
+        'AudioWorkletNode',
+        class {
+          port = { postMessage: () => {}, onmessage: null }
+          disconnect() {}
+        },
+      )
+    }
+    const requestedAudio = () => (getUserMedia.mock.calls[0][0] as { audio: Record<string, unknown> }).audio
+
+    it('fragt ohne Option wie bisher ohne Echo-Unterdrückung an', async () => {
+      getUserMedia.mockResolvedValue(fakeStream().stream)
+      stubWorkletNode()
+      await openMic(asContext(fakeContext(() => Promise.resolve())), () => {})
+      expect(requestedAudio()).toEqual({ echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 })
+    })
+
+    it('fragt mit der Option Echo-Unterdrückung an, aber weiterhin ohne Rauschfilter und Pegelautomatik', async () => {
+      getUserMedia.mockResolvedValue(fakeStream().stream)
+      stubWorkletNode()
+      await openMic(asContext(fakeContext(() => Promise.resolve())), () => {}, { echoCancellation: true })
+      expect(requestedAudio()).toEqual({ echoCancellation: true, noiseSuppression: false, autoGainControl: false, channelCount: 1 })
+    })
+
+    it('meldet, was die Spur wirklich tut, auch wenn der Browser die Anfrage nicht erfüllt', async () => {
+      getUserMedia.mockResolvedValue(fakeStream(1, { echoCancellation: false }).stream)
+      stubWorkletNode()
+      const refused = await openMic(asContext(fakeContext(() => Promise.resolve())), () => {}, { echoCancellation: true })
+      expect(refused.echoCancellation).toBe(false)
+
+      getUserMedia.mockResolvedValue(fakeStream(1, { echoCancellation: true }).stream)
+      const granted = await openMic(asContext(fakeContext(() => Promise.resolve())), () => {}, { echoCancellation: true })
+      expect(granted.echoCancellation).toBe(true)
+    })
+
+    it('versteht einen gemeldeten Modus-Namen als "an"', async () => {
+      getUserMedia.mockResolvedValue(fakeStream(1, { echoCancellation: 'all' }).stream)
+      stubWorkletNode()
+      const mic = await openMic(asContext(fakeContext(() => Promise.resolve())), () => {}, { echoCancellation: true })
+      expect(mic.echoCancellation).toBe(true)
+    })
+
+    it('nimmt den angefragten Wert, wenn der Browser nichts meldet', async () => {
+      getUserMedia.mockResolvedValue(fakeStream().stream)
+      stubWorkletNode()
+      const off = await openMic(asContext(fakeContext(() => Promise.resolve())), () => {})
+      expect(off.echoCancellation).toBe(false)
+      const on = await openMic(asContext(fakeContext(() => Promise.resolve())), () => {}, { echoCancellation: true })
+      expect(on.echoCancellation).toBe(true)
+    })
   })
 })

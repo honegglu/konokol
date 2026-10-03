@@ -14,8 +14,10 @@ import {
   clearDetectorParams,
   loadCalibration,
   loadDetectorParams,
+  loadSpeakerMode,
   saveCalibration,
   saveDetectorParams,
+  saveSpeakerMode,
   type CalibrationRecord,
 } from '../../storage/localStore'
 import { matchNearest, summarize, type DebugSummary, type ExpectedMark, type MatchedMark, type OnsetMark } from './analysis'
@@ -30,6 +32,10 @@ export type LabState = {
   sampleRate: number | null
   outputLatencyMs: number | null
   micLabel: string | null
+  /** Lautsprecher-Modus gewählt. Gilt beim nächsten Start des Mikrofons. */
+  speakerMode: boolean
+  /** Läuft die Echo-Unterdrückung am geöffneten Mikrofon wirklich? `null`: Mikrofon noch nicht offen. */
+  echoCancellation: boolean | null
   calibration: CalibrationRecord | null
   headphonesOk: boolean | null
   deviceChanged: boolean
@@ -66,7 +72,14 @@ type Run = { pattern: Pattern; bpm: number; playback: Playback }
  * zusammenpassen, egal was danach mit Kalibrierung, Reglern oder Einsatz-Liste passiert.
  * `paramsChanged`: Ein Detektor-Wert wurde während des Laufs verstellt, `detectorParams` beschreibt also nur das Ende des Laufs.
  */
-type RunSnapshot = Run & { onsets: Onset[]; latencySeconds: number; detectorParams: DetectorParams; paramsChanged: boolean }
+type RunSnapshot = Run & {
+  onsets: Onset[]
+  latencySeconds: number
+  detectorParams: DetectorParams
+  paramsChanged: boolean
+  /** Echo-Unterdrückung am Mikrofon während des Laufs (`undefined`: unbekannt). */
+  echoCancellation?: boolean
+}
 
 /** Schliesst einen AudioContext, auch wenn er schon (oder gerade) geschlossen wird. */
 function closeContext(ctx: AudioContext | null): void {
@@ -80,6 +93,8 @@ export function useAudioLab() {
     sampleRate: null,
     outputLatencyMs: null,
     micLabel: null,
+    speakerMode: loadSpeakerMode(),
+    echoCancellation: null,
     calibration: loadCalibration(),
     headphonesOk: null,
     deviceChanged: false,
@@ -158,7 +173,7 @@ export function useAudioLab() {
       if (unmountedRef.current) return release()
       const bank = await loadSampleBank(ctx)
       if (unmountedRef.current) return release()
-      mic = await openMic(ctx, onMicMessage)
+      mic = await openMic(ctx, onMicMessage, { echoCancellation: stateRef.current.speakerMode })
       if (unmountedRef.current) return release()
       mic.setParams(stateRef.current.params)
       engineRef.current = new AudioEngine(ctx, bank)
@@ -170,6 +185,7 @@ export function useAudioLab() {
         sampleRate: ctx.sampleRate,
         outputLatencyMs: Math.round(((ctx.outputLatency || 0) + ctx.baseLatency) * 1000),
         micLabel: mic.label,
+        echoCancellation: mic.echoCancellation,
         deviceChanged: calibration !== null && calibration.deviceId !== mic.deviceId,
       })
     } catch (error) {
@@ -206,6 +222,7 @@ export function useAudioLab() {
         latencySeconds: latency(),
         detectorParams: { ...runParams },
         paramsChanged: runParamsChangedRef.current,
+        echoCancellation: mic?.echoCancellation,
       }
       lastRunRef.current = snapshot
       // Der letzte zurückgehaltene Einsatz kommt erst nach dem Flush an: nachtragen, soweit er noch in der Aufnahme liegt.
@@ -348,6 +365,14 @@ export function useAudioLab() {
     [analyze, patch, setMode],
   )
 
+  const setSpeakerMode = useCallback(
+    (on: boolean) => {
+      patch({ speakerMode: on })
+      saveSpeakerMode(on)
+    },
+    [patch],
+  )
+
   const setParam = useCallback(
     (key: keyof DetectorParams, value: number) => {
       const params = { ...stateRef.current.params, [key]: value }
@@ -405,6 +430,7 @@ export function useAudioLab() {
       detectorParams: source.detectorParams,
       expected,
       onsets: source.onsets,
+      echoCancellation: source.echoCancellation,
     })
     const name = takeBaseName(pattern.id, bpm, new Date())
     download(`${name}.wav`, encodeWav16(recorder.toFloat32(), ctx.sampleRate), 'audio/wav')
@@ -457,5 +483,5 @@ export function useAudioLab() {
     }
   }, [])
 
-  return { state, init, stop, runBleedCheck, runLatency, startRun, setParam, resetParams, exportTake, liveData }
+  return { state, init, stop, runBleedCheck, runLatency, startRun, setSpeakerMode, setParam, resetParams, exportTake, liveData }
 }

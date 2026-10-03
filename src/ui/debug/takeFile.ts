@@ -14,6 +14,8 @@ export type TakeFile = {
   detectorParams: DetectorParams
   expected: { t: number; syl: SyllableId; accent: boolean }[]
   onsets: { t: number; peakDb: number }[]
+  /** War beim Mikrofon die Echo-Unterdrückung des Browsers an? Fehlt in älteren Takes (dort war sie immer aus). */
+  echoCancellation?: boolean
 }
 
 export function buildTakeFile(input: {
@@ -25,6 +27,7 @@ export function buildTakeFile(input: {
   detectorParams: DetectorParams
   expected: { t: number; syl: SyllableId; accent: boolean }[]
   onsets: { time: number; peakDb: number }[]
+  echoCancellation?: boolean
 }): TakeFile {
   const rel = (t: number) => Number((t - input.recordingStartTime).toFixed(6))
   return {
@@ -36,6 +39,7 @@ export function buildTakeFile(input: {
     detectorParams: input.detectorParams,
     expected: input.expected.filter((e) => e.t >= input.recordingStartTime).map((e) => ({ ...e, t: rel(e.t) })),
     onsets: input.onsets.filter((o) => o.time >= input.recordingStartTime).map((o) => ({ t: rel(o.time), peakDb: o.peakDb })),
+    ...(input.echoCancellation === undefined ? {} : { echoCancellation: input.echoCancellation }),
   }
 }
 

@@ -18,6 +18,7 @@ export type CalibrationRecord = {
 
 const CALIBRATION_KEY = 'taka:calibration:v1'
 const DETECTOR_KEY = 'taka:detector:v1'
+const SPEAKER_MODE_KEY = 'taka:speakerMode:v1'
 
 function read<T>(storage: KeyValueStorage, key: string, valid: (value: unknown) => value is T): T | null {
   try {
@@ -44,6 +45,10 @@ function isCalibration(value: unknown): value is CalibrationRecord {
   )
 }
 
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === 'boolean'
+}
+
 function isParams(value: unknown): value is Partial<DetectorParams> {
   return typeof value === 'object' && value !== null && Object.values(value).every((v) => typeof v === 'number')
 }
@@ -66,4 +71,13 @@ export function saveDetectorParams(params: Partial<DetectorParams>, storage: Key
 
 export function clearDetectorParams(storage: KeyValueStorage = localStorage): void {
   storage.removeItem(DETECTOR_KEY)
+}
+
+/** Lautsprecher-Modus (Echo-Unterdrückung des Browsers) der Testseite. Ohne gültigen Eintrag: aus. */
+export function loadSpeakerMode(storage: KeyValueStorage = localStorage): boolean {
+  return read(storage, SPEAKER_MODE_KEY, isBoolean) ?? false
+}
+
+export function saveSpeakerMode(on: boolean, storage: KeyValueStorage = localStorage): void {
+  storage.setItem(SPEAKER_MODE_KEY, JSON.stringify(on))
 }

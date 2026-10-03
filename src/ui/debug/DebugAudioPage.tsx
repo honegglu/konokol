@@ -69,6 +69,19 @@ export function DebugAudioPage() {
         <Card title="Starten">
           <p className="text-muted">Der Browser fragt nach dem Mikrofon. Erlaube den Zugriff, damit die Erkennung laufen kann.</p>
           {state.error && <p className="rounded-cell bg-error-soft p-3 text-error">{state.error}</p>}
+          <div className="flex flex-col gap-1">
+            <label className="flex items-center gap-2 font-extrabold">
+              <input
+                type="checkbox"
+                checked={state.speakerMode}
+                onChange={(e) => lab.setSpeakerMode(e.target.checked)}
+                disabled={state.status === 'starting'}
+                className="accent-primary"
+              />
+              Lautsprecher-Modus (Echo-Unterdrückung)
+            </label>
+            <p className="text-sm text-muted">Nur ohne Kopfhörer verwenden. Der Browser filtert dann den Klang der App aus dem Mikrofon.</p>
+          </div>
           <div>
             <Button onClick={() => void lab.init()} disabled={state.status === 'starting'} icon={<Microphone size={20} weight="bold" />}>
               {state.status === 'starting' ? 'Startet' : 'Audio starten'}
@@ -84,6 +97,7 @@ export function DebugAudioPage() {
               <Fact label="Abtastrate" value={`${state.sampleRate} Hz`} />
               <Fact label="Ausgabe-Latenz (Browser)" value={`${state.outputLatencyMs} ms`} />
               <Fact label="Mikrofon" value={state.micLabel} />
+              <Fact label="Echo-Unterdrückung" value={state.echoCancellation ? 'an' : 'aus'} />
               <Fact
                 label="Kalibrierung"
                 value={state.calibration ? `${(state.calibration.latencySeconds * 1000).toFixed(0)} ms` : 'fehlt'}

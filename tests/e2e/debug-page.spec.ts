@@ -16,6 +16,7 @@ test.use({ launchOptions: { args: ['--autoplay-policy=no-user-gesture-required']
 type Probe = {
   __contexts: AudioContext[]
   __streams: MediaStream[]
+  __constraints: MediaStreamConstraints[]
   __releaseMic?: () => void
 }
 
@@ -25,12 +26,15 @@ type Probe = {
  * - 'tone': getUserMedia liefert den künstlichen Stream
  * - 'denied': getUserMedia lehnt wie bei verweigerter Erlaubnis ab
  * - 'held': wie 'tone', aber erst, wenn der Test `__releaseMic()` aufruft
+ * Die Constraints jeder getUserMedia-Anfrage landen in `__constraints`. Die Spuren melden über `getSettings()`,
+ * ob Echo-Unterdrückung angefragt war, wie es ein Browser tut, der die Anfrage erfüllt.
  */
 async function instrument(page: Page, mic: 'tone' | 'denied' | 'held') {
   await page.addInitScript((mode) => {
     const probe = window as unknown as Probe
     probe.__contexts = []
     probe.__streams = []
+    probe.__constraints = []
     const Native = window.AudioContext
     window.AudioContext = class extends Native {
       constructor(options?: AudioContextOptions) {
@@ -38,7 +42,7 @@ async function instrument(page: Page, mic: 'tone' | 'denied' | 'held') {
         probe.__contexts.push(this)
       }
     }
-    const tone = () => {
+    const tone = (constraints?: MediaStreamConstraints) => {
       const source = new Native()
       const gain = source.createGain()
       gain.gain.value = 0
@@ -52,6 +56,11 @@ async function instrument(page: Page, mic: 'tone' | 'denied' | 'held') {
         gain.gain.setTargetAtTime(0, t + 0.02, 0.04)
       }
       void source.resume()
+      const requested = typeof constraints?.audio === 'object' && constraints.audio.echoCancellation === true
+      for (const track of destination.stream.getAudioTracks()) {
+        const native = track.getSettings.bind(track)
+        track.getSettings = () => ({ ...native(), echoCancellation: requested })
+      }
       probe.__streams.push(destination.stream)
       return destination.stream
     }
@@ -59,12 +68,16 @@ async function instrument(page: Page, mic: 'tone' | 'denied' | 'held') {
     if (mode === 'denied') {
       devices.getUserMedia = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError'))
     } else if (mode === 'held') {
-      devices.getUserMedia = () =>
+      devices.getUserMedia = (constraints) =>
         new Promise<MediaStream>((resolve) => {
-          probe.__releaseMic = () => resolve(tone())
+          probe.__constraints.push(constraints ?? {})
+          probe.__releaseMic = () => resolve(tone(constraints))
         })
     } else {
-      devices.getUserMedia = async () => tone()
+      devices.getUserMedia = async (constraints) => {
+        probe.__constraints.push(constraints ?? {})
+        return tone(constraints)
+      }
     }
   }, mic)
 }
@@ -205,4 +218,38 @@ test('Export wird verweigert, wenn während des Laufs ein Regler verstellt wurde
 
   await expect(page.getByText('Regler wurden während des Laufs verstellt. Bitte einen neuen Lauf aufnehmen.')).toBeVisible()
   expect(downloads).toEqual([])
+})
+
+const speakerModeBox = (page: Page) => page.getByRole('checkbox', { name: 'Lautsprecher-Modus (Echo-Unterdrückung)' })
+const echoCancellationFact = (page: Page) => page.getByText('Echo-Unterdrückung', { exact: true }).locator('xpath=following-sibling::span')
+const requestedEchoCancellation = (page: Page) =>
+  page.evaluate(() =>
+    (window as unknown as Probe).__constraints.map((c) => (typeof c.audio === 'object' ? c.audio.echoCancellation : undefined)),
+  )
+
+test('Standard (Kopfhörer): Mikrofon wird ohne Echo-Unterdrückung geöffnet, Status zeigt "aus"', async ({ page }) => {
+  await instrument(page, 'tone')
+  await page.goto('/debug/audio')
+  await expect(speakerModeBox(page)).not.toBeChecked()
+  await page.getByRole('button', { name: 'Audio starten' }).click()
+  await expect(page.getByRole('heading', { name: 'Status', exact: true })).toBeVisible()
+
+  expect(await requestedEchoCancellation(page)).toEqual([false])
+  await expect(echoCancellationFact(page)).toHaveText('aus')
+})
+
+test('Lautsprecher-Modus: Mikrofon wird mit Echo-Unterdrückung geöffnet, Status zeigt "an", Wahl bleibt erhalten', async ({ page }) => {
+  await instrument(page, 'tone')
+  await page.goto('/debug/audio')
+  await expect(page.getByText('Nur ohne Kopfhörer verwenden. Der Browser filtert dann den Klang der App aus dem Mikrofon.')).toBeVisible()
+  await speakerModeBox(page).check()
+  await page.getByRole('button', { name: 'Audio starten' }).click()
+  await expect(page.getByRole('heading', { name: 'Status', exact: true })).toBeVisible()
+
+  expect(await requestedEchoCancellation(page)).toEqual([true])
+  await expect(echoCancellationFact(page)).toHaveText('an')
+
+  // Die Wahl gilt pro Browser: Nach dem Neuladen ist das Feld wieder angehakt.
+  await page.reload()
+  await expect(speakerModeBox(page)).toBeChecked()
 })

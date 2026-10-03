@@ -15,6 +15,8 @@ export class MicError extends Error {
 export type MicInput = {
   deviceId: string
   label: string
+  /** Läuft die Echo-Unterdrückung des Browsers wirklich? Die Spur meldet es, sonst gilt der angefragte Wert. */
+  echoCancellation: boolean
   setParams(params: Partial<DetectorParams>): void
   /**
    * Neuer Detektor (z. B. vor einer Übung). Die Zeitbasis bleibt die Audio-Uhr.
@@ -32,11 +34,21 @@ const loadedContexts = new WeakSet<BaseAudioContext>()
 const LOAD_ERROR =
   'Die Mikrofon-Auswertung konnte nicht geladen werden. Bitte die Seite neu laden oder einen aktuellen Chrome, Firefox oder Safari verwenden.'
 
+export type MicOptions = {
+  /** Lautsprecher-Modus: Der Browser soll den Klang der App aus dem Mikrofon herausrechnen. Standard: aus. */
+  echoCancellation?: boolean
+}
+
 /**
- * Öffnet das Mikrofon ohne Echo-Unterdrückung, Rauschfilter und Pegelautomatik und hängt
- * den Einsatz-Detektor (AudioWorklet) an.
+ * Öffnet das Mikrofon ohne Rauschfilter und Pegelautomatik und hängt den Einsatz-Detektor (AudioWorklet) an.
+ * Die Echo-Unterdrückung ist nur auf Wunsch an (`options.echoCancellation`), sonst aus.
  */
-export async function openMic(ctx: AudioContext, onMessage: (message: WorkletOutMessage) => void): Promise<MicInput> {
+export async function openMic(
+  ctx: AudioContext,
+  onMessage: (message: WorkletOutMessage) => void,
+  options: MicOptions = {},
+): Promise<MicInput> {
+  const echoCancellation = options.echoCancellation === true
   if (!navigator.mediaDevices?.getUserMedia || !ctx.audioWorklet) {
     throw new MicError('unsupported', 'Dieser Browser unterstützt die Mikrofon-Auswertung nicht. Bitte aktuellen Chrome, Firefox oder Safari verwenden.')
   }
@@ -52,7 +64,7 @@ export async function openMic(ctx: AudioContext, onMessage: (message: WorkletOut
   let stream: MediaStream
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+      audio: { echoCancellation, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
     })
   } catch (error) {
     const denied = error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'SecurityError')
@@ -84,9 +96,13 @@ export async function openMic(ctx: AudioContext, onMessage: (message: WorkletOut
     let epoch = 0
 
     const track = stream.getAudioTracks()[0]
+    const settings = track.getSettings()
+    // Neuere Browser dürfen statt true auch einen Modus-Namen ("all", "remote-only") melden: Das heisst ebenfalls an.
+    const reported = settings.echoCancellation
     return {
-      deviceId: track.getSettings().deviceId ?? '',
+      deviceId: settings.deviceId ?? '',
       label: track.label || 'Mikrofon',
+      echoCancellation: typeof reported === 'string' ? true : (reported ?? echoCancellation),
       setParams: (params) => send({ type: 'params', params }),
       reset: (params) => {
         epoch += 1
