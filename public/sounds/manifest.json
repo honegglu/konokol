@@ -3,7 +3,7 @@
   "sampleRate": 24000,
   "voiceId": "iP95p4xoKVk53GoZ742B",
   "modelId": "eleven_multilingual_v2",
-  "generatedAt": "2026-10-02T20:42:12.432Z",
+  "generatedAt": "2026-10-03T07:09:30.692Z",
   "syllables": {
     "ta": {
       "normal": {
@@ -106,22 +106,22 @@
     "eins": {
       "file": "count-eins.wav",
       "refSeconds": 0.024,
-      "durationSeconds": 0.154
+      "durationSeconds": 0.474
     },
     "zwei": {
       "file": "count-zwei.wav",
-      "refSeconds": 0.016,
-      "durationSeconds": 0.146
+      "refSeconds": 0.0187,
+      "durationSeconds": 0.4687
     },
     "drei": {
       "file": "count-drei.wav",
       "refSeconds": 0.0293,
-      "durationSeconds": 0.1593
+      "durationSeconds": 0.4793
     },
     "vier": {
       "file": "count-vier.wav",
       "refSeconds": 0.0267,
-      "durationSeconds": 0.1567
+      "durationSeconds": 0.4767
     }
   },
   "ui": {

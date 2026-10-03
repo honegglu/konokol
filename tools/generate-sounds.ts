@@ -3,6 +3,10 @@
  *
  *   npm run sounds -- voices   Hörproben der Kandidaten-Stimmen nach tools/.audition/
  *   npm run sounds -- build    Alle Silben, Einzählwörter und UI-Sounds nach public/sounds/
+ *   npm run sounds -- build --only <syllables|count|ui>
+ *                              Nur die genannten Gruppen neu erzeugen, der Rest des Manifests bleibt
+ *                              unverändert. Mehrfach (--only count --only ui) oder kommagetrennt
+ *                              (--only syllables,ui) möglich.
  *
  * Liest ELEVENLABS_API aus der Umgebung oder aus .env.
  */
@@ -15,6 +19,7 @@ import { COUNT_WORDS, UI_SOUNDS, type CountWord, type SoundManifest, type SoundR
 import { SYLLABLES } from '../src/content/syllables'
 import type { SyllableId } from '../src/domain/types'
 import { prepareSyllable, prepareUiSound, type PreparedSyllable } from './lib/analyze'
+import { parseBuildArgs, type BuildGroup } from './lib/args'
 import { ElevenLabsClient, OUTPUT_SAMPLE_RATE } from './lib/elevenlabs'
 import { chooseTake } from './lib/takes'
 
@@ -34,6 +39,9 @@ type Config = {
 const ROOT = path.resolve(import.meta.dirname, '..')
 const OUT_DIR = path.join(ROOT, 'public', 'sounds')
 const AUDITION_DIR = path.join(ROOT, 'tools', '.audition')
+const USAGE = 'Aufruf: npm run sounds -- voices | build [--only <syllables|count|ui>]'
+/** Einzählwörter werden im Spiel nie abgewürgt und dürfen ausklingen (Standard der Silben: 0.13 s). */
+const COUNT_TAIL_SECONDS = 0.45
 
 async function loadConfig(): Promise<Config> {
   return JSON.parse(await readFile(path.join(ROOT, 'tools', 'sounds.config.json'), 'utf8')) as Config
@@ -69,11 +77,18 @@ async function voices(config: Config): Promise<void> {
   console.log('\nHöre die Proben an, trage die gewählte voiceId in tools/sounds.config.json ein und starte dann "build".')
 }
 
-async function renderSyllable(api: ElevenLabsClient, config: Config, key: string, text: string, peakDb: number): Promise<PreparedSyllable> {
+async function renderSyllable(
+  api: ElevenLabsClient,
+  config: Config,
+  key: string,
+  text: string,
+  peakDb: number,
+  tailSeconds?: number,
+): Promise<PreparedSyllable> {
   const takes: PreparedSyllable[] = []
   for (let take = 1; take <= config.takes; take++) {
     const raw = await api.tts(config.voiceId, text, { modelId: config.modelId, seed: take })
-    const prepared = prepareSyllable(raw, OUTPUT_SAMPLE_RATE, { peakDb })
+    const prepared = prepareSyllable(raw, OUTPUT_SAMPLE_RATE, { peakDb, tailSeconds })
     takes.push(prepared)
     await writeWav(path.join(AUDITION_DIR, 'takes', `${key}-${take}.wav`), prepared.samples)
   }
@@ -83,41 +98,59 @@ async function renderSyllable(api: ElevenLabsClient, config: Config, key: string
   return chosen
 }
 
-async function build(config: Config): Promise<void> {
-  if (!config.voiceId) throw new Error('voiceId in tools/sounds.config.json ist leer. Zuerst "voices" ausführen und eine Stimme wählen.')
-  const api = client()
-  const syllables = {} as SoundManifest['syllables']
-  const count = {} as SoundManifest['count']
-  const ui = {} as SoundManifest['ui']
+async function loadManifest(config: Config): Promise<SoundManifest> {
+  const file = path.join(OUT_DIR, 'manifest.json')
+  if (!existsSync(file)) throw new Error('Mit --only braucht es ein bestehendes public/sounds/manifest.json. Zuerst einmal ohne --only bauen.')
+  const manifest = JSON.parse(await readFile(file, 'utf8')) as SoundManifest
+  if (manifest.voiceId !== config.voiceId || manifest.modelId !== config.modelId) {
+    throw new Error('voiceId/modelId in tools/sounds.config.json weichen vom bestehenden Manifest ab. Mit --only würden Stimmen gemischt; ohne --only komplett neu bauen.')
+  }
+  return manifest
+}
 
-  console.log('Silben:')
-  for (const syl of SYLLABLES) {
-    const texts = config.syllables[syl]
-    const normal = await renderSyllable(api, config, `${syl}.normal`, texts.normal, config.levels.normalPeakDb)
-    const accent = await renderSyllable(api, config, `${syl}.accent`, texts.accent, config.levels.accentPeakDb)
-    await writeWav(path.join(OUT_DIR, `syl-${syl}.wav`), normal.samples)
-    await writeWav(path.join(OUT_DIR, `syl-${syl}-accent.wav`), accent.samples)
-    syllables[syl] = {
-      normal: soundRef(`syl-${syl}.wav`, normal.samples, normal.refSeconds),
-      accent: soundRef(`syl-${syl}-accent.wav`, accent.samples, accent.refSeconds),
+async function build(config: Config, groups: Set<BuildGroup>): Promise<void> {
+  if (!config.voiceId) throw new Error('voiceId in tools/sounds.config.json ist leer. Zuerst "voices" ausführen und eine Stimme wählen.')
+  const partial = groups.size < 3
+  const previous = partial ? await loadManifest(config) : undefined
+  const api = client()
+  const syllables = previous?.syllables ?? ({} as SoundManifest['syllables'])
+  const count = previous?.count ?? ({} as SoundManifest['count'])
+  const ui = previous?.ui ?? ({} as SoundManifest['ui'])
+
+  if (groups.has('syllables')) {
+    console.log('Silben:')
+    for (const syl of SYLLABLES) {
+      const texts = config.syllables[syl]
+      const normal = await renderSyllable(api, config, `${syl}.normal`, texts.normal, config.levels.normalPeakDb)
+      const accent = await renderSyllable(api, config, `${syl}.accent`, texts.accent, config.levels.accentPeakDb)
+      await writeWav(path.join(OUT_DIR, `syl-${syl}.wav`), normal.samples)
+      await writeWav(path.join(OUT_DIR, `syl-${syl}-accent.wav`), accent.samples)
+      syllables[syl] = {
+        normal: soundRef(`syl-${syl}.wav`, normal.samples, normal.refSeconds),
+        accent: soundRef(`syl-${syl}-accent.wav`, accent.samples, accent.refSeconds),
+      }
     }
   }
 
-  console.log('Einzählen:')
-  for (const word of COUNT_WORDS) {
-    const prepared = await renderSyllable(api, config, `count.${word}`, config.count[word], config.levels.countPeakDb)
-    await writeWav(path.join(OUT_DIR, `count-${word}.wav`), prepared.samples)
-    count[word] = soundRef(`count-${word}.wav`, prepared.samples, prepared.refSeconds)
+  if (groups.has('count')) {
+    console.log('Einzählen:')
+    for (const word of COUNT_WORDS) {
+      const prepared = await renderSyllable(api, config, `count.${word}`, config.count[word], config.levels.countPeakDb, COUNT_TAIL_SECONDS)
+      await writeWav(path.join(OUT_DIR, `count-${word}.wav`), prepared.samples)
+      count[word] = soundRef(`count-${word}.wav`, prepared.samples, prepared.refSeconds)
+    }
   }
 
-  console.log('UI-Sounds:')
-  for (const name of UI_SOUNDS) {
-    const spec = config.ui[name]
-    const raw = await api.soundEffect(spec.prompt, Math.max(0.5, spec.seconds))
-    const samples = prepareUiSound(raw, OUTPUT_SAMPLE_RATE, config.levels.uiPeakDb, spec.seconds + 0.2)
-    await writeWav(path.join(OUT_DIR, `ui-${name}.wav`), samples)
-    ui[name] = soundRef(`ui-${name}.wav`, samples, 0)
-    console.log(`  ${name}`)
+  if (groups.has('ui')) {
+    console.log('UI-Sounds:')
+    for (const name of UI_SOUNDS) {
+      const spec = config.ui[name]
+      const raw = await api.soundEffect(spec.prompt, Math.max(0.5, spec.seconds))
+      const samples = prepareUiSound(raw, OUTPUT_SAMPLE_RATE, config.levels.uiPeakDb, spec.seconds + 0.2)
+      await writeWav(path.join(OUT_DIR, `ui-${name}.wav`), samples)
+      ui[name] = soundRef(`ui-${name}.wav`, samples, 0)
+      console.log(`  ${name}`)
+    }
   }
 
   const manifest: SoundManifest = {
@@ -138,9 +171,9 @@ async function main(): Promise<void> {
   const command = process.argv[2]
   const config = await loadConfig()
   if (command === 'voices') await voices(config)
-  else if (command === 'build') await build(config)
+  else if (command === 'build') await build(config, parseBuildArgs(process.argv.slice(3)).groups)
   else {
-    console.error('Aufruf: npm run sounds -- voices | build')
+    console.error(USAGE)
     process.exitCode = 1
   }
 }
